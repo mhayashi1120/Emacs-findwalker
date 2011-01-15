@@ -45,11 +45,11 @@
 ;; 
 ;; * You can edit `find' command-line option by s-expression like following.
 ;;
-;; (or (name "HOGE") (type "f")) (type "d")
+;; (or (name "HOGE") (type "d")) (type "f")
 ;;
 ;; This expand to 
 ;;
-;; find /any/default-directory \( -name HOGE -or -type f \) -type d 
+;; find /any/default-directory \( -name HOGE -or -type d \) -type f 
 ;;
 ;; Type C-c C-c execute above command and display command output.
 ;;      With prefix-arguments, call `find-dired'
