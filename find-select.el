@@ -74,9 +74,9 @@
 
 (defvar find-program)
 
-(defvar find-select-buffer-name " *Find Select* ")
+(defvar find-select-buffer-name "*Find Select* ")
 (defvar find-select-result-buffer-name " *Find Select Results* ")
-(defvar find-select-sub-buffer-name " *Find Select Command-Line* ")
+(defvar find-select-sub-buffer-name "*Find Select Command-Line* ")
 (defvar find-select-previous-window-configuration nil)
 (defvar find-select-history nil)
 (defvar find-select-history-position nil)
@@ -117,6 +117,9 @@
   (set (make-local-variable 'find-select-previous-window-configuration) nil)
   (set (make-local-variable 'find-select-history-position) nil)
   (set (make-local-variable 'window-configuration-change-hook) nil)
+  (set (make-local-variable 'completion-at-point-functions) 
+       (list 'find-select-completion-at-point))
+  (find-select-ac-initialize)
   (add-hook 'after-change-functions 'find-select-show-command)
   (add-hook 'kill-buffer-hook 'find-select-cleanup)
   (message (substitute-command-keys 
@@ -245,6 +248,38 @@
     (setq list (nreverse list))
     (mapconcat 'identity list "\000")))
 
+(defun find-select-completion-at-point ()
+  (with-syntax-table lisp-mode-syntax-table
+    (let* ((pos (point))
+           (beg (condition-case nil
+                    (save-excursion
+                      (backward-sexp 1)
+                      (skip-syntax-forward "'")
+                      (point))
+                  (scan-error pos)))
+           (end (point)))
+      (list beg end 
+            (vconcat (mapcar 'car find-constituents))))))
+
+(defun find-select-ac-candidates ()
+  (mapcar 
+   (lambda (x) 
+     (symbol-name (car x)))
+   find-constituents))
+
+;;TODO not works?
+(defun find-select-ac-initialize ()
+  (when (featurep 'auto-complete)
+
+    (ac-define-source find-select-constituents
+      '((candidates . find-select-ac-candidates)
+        (symbol . "s")
+        (prefix . "(\\(?:\\(?:\\sw\\|\\s_\\)*\\)")
+        (requires . 1)
+        (cache)))
+
+    (setq ac-sources '(ac-source-find-select-constituents))))
+
 (defvar find-select-running-process nil)
 
 
@@ -349,7 +384,7 @@ Optional ARG means execute `find-dired' with same arguments."
 	(config (current-window-configuration)))
     (with-current-buffer buffer
       (setq default-directory dir)
-      (emacs-lisp-mode)
+      (lisp-mode)
       (find-select-minor-mode 1)
       (setq find-select-previous-window-configuration config)
       (erase-buffer)
