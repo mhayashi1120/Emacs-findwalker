@@ -3,6 +3,7 @@
 ;; Author: Hayashi Masahiro <mhayashi1120@gmail.com>
 ;; Keywords: find command result xargs
 ;; URL: http://github.com/mhayashi1120/Emacs-find-select/raw/master/find-select.el
+;; Version: 0.1.0
 
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
