@@ -50,7 +50,7 @@
 ;;
 ;; This expand to 
 ;;
-;; find /any/default-directory \( -name HOGE -or -type d \) -type f 
+;; find /wherever/default-directory \( -name HOGE -or -type d \) -type f 
 ;;
 ;; Type C-c C-c execute above command and display command output.
 ;;      With prefix-arguments, call `find-dired'
@@ -75,73 +75,57 @@
 
 (defvar find-program)
 
-(defvar find-select-buffer-name "*Find Select* ")
 (defvar find-select-result-buffer-name " *Find Select Results* ")
+(defvar find-select-edit-buffer-name "*Find Select* ")
 (defvar find-select-sub-buffer-name "*Find Select Command-Line* ")
-(defvar find-select-previous-window-configuration nil)
+(defvar find-select-previous-window-configurations nil)
 (defvar find-select-history nil)
 (defvar find-select-history-position nil)
 
-(defvar find-select-mode-map nil)
+(defvar find-select-list-mode-map nil)
 
-(unless find-select-mode-map
-  (setq find-select-mode-map
-	(let ((map (make-sparse-keymap)))
+(unless find-select-list-mode-map
+  (let ((map (make-sparse-keymap)))
 
-	  (define-key map "\C-c\C-k" 'find-select-quit)
-	  (define-key map "\C-c\C-q" 'find-select-quit)
-	  (define-key map "\C-c\C-c" 'find-select-execute)
-	  (define-key map "\M-p" 'find-select-previous-history)
-	  (define-key map "\M-n" 'find-select-next-history)
+    (define-key map "\C-c\C-c" 'find-select-kill-process)
+    (define-key map "\C-c\C-k" 'find-select-quit)
+    (define-key map "\C-c\C-q" 'find-select-quit)
+    (define-key map "\C-c!" 'find-select-start-with-xargs)
+    (define-key map "\C-c\e|" 'find-select-shell-command)
 
-	  map)))
-    
-(defvar find-select-result-mode-map nil)
+    (setq find-select-list-mode-map map)))
 
-(unless find-select-result-mode-map
-  (setq find-select-result-mode-map
-	(let ((map (make-sparse-keymap)))
+(defvar find-select-edit-mode-map nil)
 
-	  (define-key map "\C-c\C-c" 'find-select-kill-process)
-	  (define-key map "\C-c\C-k" 'find-select-quit)
-	  (define-key map "\C-c\C-q" 'find-select-quit)
-	  (define-key map "\C-c!" 'find-select-start-with-xargs)
-	  (define-key map "\C-c\e|" 'find-select-shell-command)
+(unless find-select-edit-mode-map
+  (let ((map (make-sparse-keymap)))
 
-	  map)))
+    (define-key map "\C-c\C-k" 'find-select-quit)
+    (define-key map "\C-c\C-q" 'find-select-quit)
+    (define-key map "\C-c\C-c" 'find-select-execute)
+    (define-key map "\M-p" 'find-select-previous-history)
+    (define-key map "\M-n" 'find-select-next-history)
 
-(define-minor-mode find-select-minor-mode
-  "Minor mode to build `find' command args by using `fsvn-cmd'"
-  nil nil find-select-mode-map
-  (set (make-local-variable 'after-change-functions) nil)
-  (set (make-local-variable 'kill-buffer-hook) nil)
-  (set (make-local-variable 'find-select-previous-window-configuration) nil)
-  (set (make-local-variable 'find-select-history-position) nil)
-  (set (make-local-variable 'window-configuration-change-hook) nil)
-  (set (make-local-variable 'completion-at-point-functions) 
-       (list 'find-select-completion-at-point))
-  (find-select-ac-initialize)
-  (add-hook 'after-change-functions 'find-select-show-command)
-  (add-hook 'kill-buffer-hook 'find-select-cleanup)
-  (message (substitute-command-keys 
-	    (concat "Type \\[find-select-execute] to execute find, "
-		    "\\[find-select-quit] to quit edit."))))
+    (setq find-select-edit-mode-map map)))
 
-(defun find-select-result-mode ()
+(defun find-select-list-mode ()
   (kill-all-local-variables)
-  (use-local-map find-select-result-mode-map)
-  (setq major-mode 'find-select-result-mode)
+  (use-local-map find-select-list-mode-map)
+  (setq major-mode 'find-select-list-mode)
   (setq mode-name "Find Select Results")
-  (erase-buffer)
+  (let ((inhibit-read-only t))
+    (erase-buffer))
+  (find-select-push-window-configuration (current-window-configuration))
   (set-buffer-modified-p nil)
   (setq buffer-undo-list nil))
 
 (defun find-select-cleanup ()
-  (let ((buf (get-buffer find-select-sub-buffer-name)))
-    (when (buffer-live-p buf)
-      (kill-buffer buf)))
-  (when find-select-previous-window-configuration
-    (set-window-configuration find-select-previous-window-configuration)))
+  (find-select-restore))
+
+(defun find-select-restore ()
+  (let ((config (find-select-pop-window-configuration)))
+    (when (window-configuration-p config)
+      (set-window-configuration config))))
 
 (defun find-select-read-function ()
   (let (collection tmp)
@@ -201,7 +185,7 @@
 (defun find-select-args-string-safe ()
   (condition-case nil
       (find-select-args-string)
-    (error nil)))
+    (error "")))
 
 (defun find-select-args ()
   ;;TODO escaped space
@@ -269,7 +253,7 @@
    find-constituents))
 
 ;;TODO not works?
-(defun find-select-ac-initialize ()
+(defun find-select-edit-ac-initialize ()
   (when (featurep 'auto-complete)
 
     (ac-define-source find-select-constituents
@@ -282,6 +266,16 @@
     (setq ac-sources '(ac-source-find-select-constituents))))
 
 (defvar find-select-running-process nil)
+
+(defun find-select-commit (buffer)
+  (add-to-history 'find-select-history (with-current-buffer buffer (buffer-string)))
+  (bury-buffer buffer))
+
+(defun find-select-delete-subwindow ()
+  (let ((sub (get-buffer find-select-sub-buffer-name))
+        win)
+    (when (and sub (setq win (get-buffer-window sub)))
+      (delete-window win))))
 
 
 
@@ -300,8 +294,11 @@
    (lambda (name)
      (let ((buffer (get-buffer name)))
        (when (buffer-live-p buffer)
-	 (kill-buffer buffer))))
-   (list find-select-result-buffer-name find-select-buffer-name)))
+	 (bury-buffer buffer))))
+   (list find-select-result-buffer-name 
+         find-select-edit-buffer-name
+         find-select-sub-buffer-name))
+  (find-select-restore))
 
 (defun find-select-kill-process ()
   (interactive)
@@ -311,18 +308,19 @@
     (when (y-or-n-p "Find process is running. Kill it? ")
       (delete-process proc))))
 
+;;TODO commit
 (defun find-select-execute (&optional arg)
   "Execute `find' with editing args.
 Optional ARG means execute `find-dired' with same arguments."
   (interactive "P")
-  (let ((main-buffer (current-buffer))
+  (let ((edit-buffer (current-buffer))
 	find-args)
     (if arg
 	(progn
 	  ;;TODO use find-select-args-string ?
 	  ;;TODO when error?
 	  (setq find-args (find-select-args-string-safe))
-	  (find-select-commit main-buffer)
+	  (find-select-commit edit-buffer)
 	  (find-dired default-directory find-args))
       (let ((buffer (get-buffer-create find-select-result-buffer-name))
 	    (dir default-directory)
@@ -332,7 +330,7 @@ Optional ARG means execute `find-dired' with same arguments."
 	  (let (command-line)
 	    (setq command-line (format "%s %s" find-program 
 				       (mapconcat 'identity find-args " ")))
-	    (find-select-result-mode)
+	    (find-select-list-mode)
 	    (setq default-directory dir)
 	    ;;TODO for cmd.exe
 	    (setq proc (start-process "Select file by find" (current-buffer) 
@@ -348,8 +346,8 @@ Optional ARG means execute `find-dired' with same arguments."
 	    (set-process-filter proc 'find-select-find-filter)
 	    (setq mode-line-process 
 		  (propertize ":run" 'face 'compilation-warning))))
-	(find-select-commit main-buffer)
-	(switch-to-buffer buffer)))))
+	(find-select-commit edit-buffer)
+	(set-window-buffer (selected-window) buffer)))))
 
 ;; TODO
 (defun find-select-start-with-xargs (command)
@@ -366,31 +364,115 @@ Optional ARG means execute `find-dired' with same arguments."
   (interactive)
   (error "Not implement yet"))
 
-(defun find-select-commit (buffer)
-  (add-to-history 'find-select-history (with-current-buffer buffer (buffer-string)))
-  (kill-buffer buffer))
-
 ;;TODO
 (defun find-select-call-function ()
+  (interactive "aFunction: ")
+  )
+
+;; TODO send to grep ignoring directory
+(defun find-select-call-grep ()
   (interactive)
   )
 
+;; TODO narrow the result
+(defun find-select-call-find ()
+  (interactive)
+  )
+
+;;TODO concatenate other program output to find.
+;; ex:
+;; dpkg -L some-package | xargs --max-args=1 -I \{\} -e find \{\} -type f -maxdepth 0 -print0 | xargs -0 -e grep -nH -e "word"
+
+;; TODO use shell command output as file list.
+;; ex:
+;; dpkg -L some-package
+
+(defun find-select-pop-window-configuration ()
+  (let ((top (car find-select-previous-window-configurations)))
+    (when top
+      (setq find-select-previous-window-configurations
+            (cdr find-select-previous-window-configurations))
+      top)))
+
+(defun find-select-push-window-configuration (config)
+  (setq find-select-previous-window-configurations
+        (cons config find-select-previous-window-configurations)))
+
+(defun find-select-functions (arg-length)
+  (let (res)
+    (mapatoms
+     (lambda (x)
+       (when (functionp x)
+         (let ((func (symbol-function x)))
+           (cond
+            ((symbolp func)
+             ;;TODO
+             (indirect-function func))
+            ;;TODO
+            ;; ((functionp func)
+            ;;  (setq res (cons x res)))
+            ((subrp func)
+             (let ((arity (subr-arity func)))
+               (when (and (<= (car arity) arg-length)
+                          (or (eq (cdr arity) 'many)
+                              (<= arg-length (cdr arity))))
+                 (setq res (cons x res)))))))))
+     obarray)
+    res))
+
+(defvar find-select-edit-font-lock-keywords 
+  `(
+    ("(\\([a-z]+\\)" (1 font-lock-function-name-face))
+    ))
+
+(defvar find-select-edit-font-lock-defaults
+  '(
+    (find-select-edit-font-lock-keywords)
+    nil nil (("+-*/.<>=!?$%_&~^:@" . "w")) nil
+    (font-lock-mark-block-function . mark-defun)
+    (font-lock-syntactic-face-function . lisp-font-lock-syntactic-face-function)
+    ))
+
+(define-derived-mode find-select-edit-mode lisp-mode "Find Edit"
+  "Major mode to build `find' command args by using `fsvn-cmd'"
+  (set (make-local-variable 'after-change-functions) nil)
+  (set (make-local-variable 'kill-buffer-hook) nil)
+  (set (make-local-variable 'find-select-history-position) nil)
+  (set (make-local-variable 'window-configuration-change-hook) nil)
+  (set (make-local-variable 'completion-at-point-functions) 
+       (list 'find-select-completion-at-point))
+  (set (make-local-variable 'font-lock-defaults)
+       find-select-edit-font-lock-defaults)
+  (let ((inhibit-read-only t))
+    (erase-buffer))
+  (find-select-push-window-configuration (current-window-configuration))
+  (find-select-edit-ac-initialize)
+  (add-hook 'after-change-functions 'find-select-show-command)
+  (add-hook 'kill-buffer-hook 'find-select-cleanup)
+  (use-local-map find-select-edit-mode-map)
+  (set-buffer-modified-p nil)
+  (setq buffer-undo-list nil))
+
 (defun find-select ()
   ;; execute find and display command-line to buffer.
-  ;; electric mode
+  ;; -> electric mode?
   ;; execute buffer buffer with call-process-region
   (interactive)
-  (let ((buffer (get-buffer-create find-select-buffer-name))
-	(dir default-directory)
-	(config (current-window-configuration)))
+  (let ((buffer (get-buffer-create find-select-edit-buffer-name))
+	(dir default-directory))
     (with-current-buffer buffer
       (setq default-directory dir)
-      (lisp-mode)
-      (find-select-minor-mode 1)
-      (setq find-select-previous-window-configuration config)
-      (erase-buffer)
-      (set-buffer-modified-p nil))
-    (select-window (display-buffer buffer))))
+      (find-select-edit-mode))
+    (select-window (display-buffer buffer))
+    (message (substitute-command-keys 
+              (concat "Type \\[find-select-execute] to execute find, "
+                      "\\[find-select-quit] to quit edit.")))))
+
+;; TODO save buffer contents to history
+;; * some shell command buffer
+;;   *shell command* dpkg -L some-package
+;;    narrow to find
+;; * find-select-list-mode buffer
 
 
 
