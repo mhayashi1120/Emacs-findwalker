@@ -1,6 +1,6 @@
 ;;; find-select.el --- find file utilities
 
-;; Author: Hayashi Masahiro <mhayashi1120@gmail.com>
+;; Author: Masahiro Hayashi <mhayashi1120@gmail.com>
 ;; Keywords: find command result xargs
 ;; URL: http://github.com/mhayashi1120/Emacs-find-select/raw/master/find-select.el
 ;; Version: 0.1.0
@@ -232,16 +232,16 @@
 
 (defvar find-select-edit-mode-map nil)
 
-(unless find-select-edit-mode-map
-  (let ((map (make-sparse-keymap)))
+(let ((map (or find-select-edit-mode-map (make-sparse-keymap))))
 
-    (define-key map "\C-c\C-k" 'find-select-quit)
-    (define-key map "\C-c\C-q" 'find-select-quit)
-    (define-key map "\C-c\C-c" 'find-select-edit-execute)
-    (define-key map "\M-p" 'find-select-edit-previous-history)
-    (define-key map "\M-n" 'find-select-edit-next-history)
+  (define-key map "\C-c\C-k" 'find-select-quit)
+  (define-key map "\C-c\C-q" 'find-select-quit)
+  (define-key map "\C-c\C-c" 'find-select-edit-execute)
+  (define-key map "\C-c\C-d" 'find-select-edit-execute-dired)
+  (define-key map "\M-p" 'find-select-edit-previous-history)
+  (define-key map "\M-n" 'find-select-edit-next-history)
 
-    (setq find-select-edit-mode-map map)))
+  (setq find-select-edit-mode-map map))
 
 (defvar find-select-edit-font-lock-keywords 
   `(
@@ -284,39 +284,40 @@
   (interactive)
   (find-select-edit-goto-history nil))
 
-;;TODO commit
-(defun find-select-edit-execute (&optional arg)
-  "Execute `find' with editing args.
-Optional ARG means execute `find-dired' with same arguments."
-  (interactive "P")
+(defun find-select-edit-execute-dired ()
+  "Execute `find-dired' ."
+  (interactive)
+  ;;TODO use find-select-args-string ?
+  ;;TODO when error?
   (let ((edit-buffer (current-buffer))
-	find-args)
-    (if arg
-	(progn
-	  ;;TODO use find-select-args-string ?
-	  ;;TODO when error?
-	  (setq find-args (find-select-args-string-safe))
-	  (find-select-commit edit-buffer)
-	  (find-dired default-directory find-args))
-      (let ((buffer (get-buffer-create find-select-result-buffer-name))
-	    (dir default-directory)
-	    proc)
-	(setq find-args (find-select-args))
-	(with-current-buffer buffer
-	  (let (command-line)
-	    (setq command-line (format "%s %s" find-program 
-				       (mapconcat 'identity find-args " ")))
-	    (find-select-list-mode)
-	    (setq default-directory dir)
-	    ;;TODO for cmd.exe
-	    (setq proc (start-process "Select file by find" (current-buffer) 
-				      shell-file-name shell-command-switch command-line))
-	    (set-process-sentinel proc 'find-select-process-sentinel)
-	    (set-process-filter proc 'find-select-find-filter)
-	    (setq mode-line-process 
-		  (propertize ":run" 'face 'compilation-warning))))
-	(find-select-commit edit-buffer)
-	(set-window-buffer (selected-window) buffer)))))
+	(find-args (find-select-args-string-safe)))
+    (find-select-commit edit-buffer)
+    (find-dired default-directory find-args)))
+
+;;TODO commit
+(defun find-select-edit-execute ()
+  "Execute `find' with editing args."
+  (interactive)
+  (let ((edit-buffer (current-buffer))
+        (buffer (get-buffer-create find-select-result-buffer-name))
+        (dir default-directory)
+        (find-args (find-select-args))
+        proc)
+    (with-current-buffer buffer
+      (let (command-line)
+        (setq command-line (format "%s %s" find-program 
+                                   (mapconcat 'identity find-args " ")))
+        (find-select-list-mode)
+        (setq default-directory dir)
+        ;;TODO for cmd.exe
+        (setq proc (start-process "Select file by find" (current-buffer) 
+                                  shell-file-name shell-command-switch command-line))
+        (set-process-sentinel proc 'find-select-process-sentinel)
+        (set-process-filter proc 'find-select-find-filter)
+        (setq mode-line-process 
+              (propertize ":run" 'face 'compilation-warning))))
+    (find-select-commit edit-buffer)
+    (set-window-buffer (selected-window) buffer)))
 
 (defun find-select-edit-goto-history (previous)
   (let ((n (funcall (if previous '1+ '1-) (or find-select-history-position -1))))
@@ -379,9 +380,14 @@ Optional ARG means execute `find-dired' with same arguments."
       (insert event)
       (set-buffer-modified-p nil))))
 
+(defvar find-select-xargs-mode nil)
+(make-variable-buffer-local 'find-select-xargs-mode)
+
 (defun find-select-show-command (&rest dummy)
   (condition-case nil
       (let ((buf (get-buffer-create find-select-sub-buffer-name))
+            (first-arg (if find-select-xargs-mode 
+                           "`pass by xargs`" default-directory))
 	    args win parse-error)
 	(condition-case err
 	    (setq args (find-select-args-string))
@@ -391,7 +397,7 @@ Optional ARG means execute `find-dired' with same arguments."
 	    (erase-buffer)
 	    (cond
 	     (args
-	      (insert (propertize (concat find-program " " default-directory " ")
+	      (insert (propertize (concat find-program " " first-arg " ")
 				  'face font-lock-constant-face))
 	      (insert (propertize args 'face font-lock-variable-name-face) "\n"))
 	     (t
@@ -506,9 +512,23 @@ Optional ARG means execute `find-dired' with same arguments."
          find-select-sub-buffer-name))
   (find-select-restore))
 
-
-
 ;; TODO interface
+(defun find-select-narrow ()
+  (interactive)
+  (let ((buffer (get-buffer-create find-select-edit-buffer-name))
+	(dir default-directory))
+    (with-current-buffer buffer
+      (setq default-directory dir)
+      (find-select-edit-mode)
+      (setq find-select-xargs-mode t))
+    ;;TODO set window settings
+    ;; remove empty line?
+    ;; remove invalid line?
+    (select-window (display-buffer buffer))
+    (message (substitute-command-keys 
+              (concat "Type \\[find-select-edit-execute] to execute find, "
+                      "\\[find-select-quit] to quit edit.")))))
+
 
 (defun find-select (&optional suppress-todo)
   ;; execute find and display command-line to buffer.
