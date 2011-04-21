@@ -68,6 +68,7 @@
 ;; * Describe how to call command.
 ;; * Can complete symbol. auto-complete.el?
 ;; * Reconsider to use compile.el or not 
+;; * in result buffer C-m open the file.
 
 ;;; Code:
 
