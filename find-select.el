@@ -373,7 +373,7 @@
         (set-process-sentinel proc 'find-select-process-sentinel)
         (set-process-filter proc 'find-select-find-filter)
         (setq mode-line-process 
-              (propertize ":run" 'face 'compilation-warning))
+              (propertize ":run" 'face compilation-warning-face))
         proc))))
 
 (defconst find-select-result-buffer-format " *Find Select Results<%d>* ")
