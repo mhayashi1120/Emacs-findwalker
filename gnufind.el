@@ -43,7 +43,7 @@
 ;; * Following command open editable buffer.
 ;;
 ;;    M-x gnufind
-;; 
+;;
 ;; * You can edit `find' command-line option by s-expression like following.
 ;;
 ;; (or (name "HOGE") (type "d")) (type "f")
@@ -69,6 +69,7 @@
 ;; * Can complete symbol. auto-complete.el?
 ;; * cleanup buffer.
 ;; * describe how to use. (command sequence)
+;; * kill command line
 
 ;;; Code:
 
@@ -194,6 +195,7 @@
   ;;TODO change keybind
   (define-key map "\C-c\ed" 'gnufind-edit-find-dired)
   (define-key map "\C-j" 'gnufind-edit-try)
+  (define-key map "\C-c\C-e" 'gnufind-edit-try-last-sexp)
   (define-key map "\M-p" 'gnufind-edit-previous-history)
   (define-key map "\M-n" 'gnufind-edit-next-history)
 
@@ -214,7 +216,6 @@
     ))
 
 (defvar gnufind-edit-buffer-name "*GNU Find Edit*")
-(defvar gnufind-edit-sub-buffer-name " *GNU Find Command* ")
 
 (defvar gnufind-edit--configuration-stack nil)
 (defvar gnufind-edit--history nil)
@@ -255,7 +256,6 @@
   (interactive)
   (gnufind-edit-goto-history nil))
 
-;;TODO
 (defun gnufind-edit-done ()
   "Execute `find' with editing args."
   (interactive)
@@ -263,12 +263,14 @@
     (cond
      ((or (null find-args)
           (not (equal gnufind-edit--tried find-args)))
-      ;; TODO force kill
       (gnufind-edit--start
        (format "%s %s" find-program 
-               (mapconcat 'identity find-args " ")))))
-    (gnufind-edit--done-setting)
-    (add-to-history 'gnufind-edit--history (buffer-string))))
+               (gnufind--join find-args)) t)))
+    (gnufind-edit--done-window)
+    (let ((contents
+           (buffer-substring-no-properties
+            (point-min) (point-max))))
+      (add-to-history 'gnufind-edit--history contents))))
 
 (defun gnufind-edit-quit ()
   "Quit editing."
@@ -287,39 +289,47 @@
   (interactive)
   (let* ((edit-buffer (current-buffer))
          (find-args (gnufind-edit--args t)))
-    ;; TODO force kill
     (gnufind-edit--start
      (format "%s %s" find-program 
-             (mapconcat 'identity find-args " ")))
+             (gnufind--join find-args)) t)
     (setq gnufind-edit--tried find-args)
-    (gnufind-edit--try-setting)))
+    (gnufind-edit--try-window)))
 
-;;TODO
 (defun gnufind-edit-try-last-sexp ()
+  "Try last sexp before point."
   (interactive)
-  )
+  (let ((sexp (preceding-sexp)))
+    (unless (and sexp (listp sexp))
+      (error "Invalid sexp `%s'" sexp))
+    (let* ((stringified (gnufind--stringify sexp))
+           (find-args (gnufind-edit--compile-args (list stringified))))
+      (gnufind-edit--start
+       (format "%s %s" find-program
+               (gnufind--join find-args)) t)
+      (gnufind-edit--try-window))))
 
 (defun gnufind-edit-find-dired ()
   "Execute `find-dired' ."
   (interactive)
-  ;;TODO use gnufind-edit--args-string ?
   ;;TODO when error?
   (let ((edit-buffer (current-buffer))
 	(find-args (gnufind-edit--args-string t)))
     (find-dired default-directory find-args)
-    ;;TODO window configuraiton
     (let ((win (get-buffer-window edit-buffer)))
       (when win
         (delete-window win)))))
 
 (defun gnufind-edit--start (command &optional force-kill)
-  ;;TODO force-kill
-  ;;TODO
-  (let* ((buf (compilation-start command 'gnufind-mode)))
-    (setq gnufind-edit--compile-buffer buf)
-    ;; cleanup command-line showing buffer
-    (gnufind-edit--delete-subwindow)
-    buf))
+  (when force-kill
+    (let* ((buffer gnufind-edit--compile-buffer)
+           (proc (and buffer (get-buffer-process buffer))))
+      (when proc
+        (kill-process proc)
+        (delete-process proc))))
+  (save-window-excursion
+    (let* ((buf (compilation-start command 'gnufind-mode)))
+      (setq gnufind-edit--compile-buffer buf)
+      buf)))
 
 (defun gnufind-edit--clear-window-settings ()
   (setq gnufind-edit--configuration-stack nil))
@@ -335,28 +345,21 @@
   (setq gnufind-edit--configuration-stack
         (cons setting gnufind-edit--configuration-stack)))
 
-;; (defun gnufind-edit--done-setting ()
-;;   (gnufind-edit--pop-window-setting)
-;;   (delete-other-windows)
-;;   (let ((buffer gnufind-edit--compile-buffer)
-;;         (new-win (split-window-vertically)))
-;;     (set-window-buffer new-win buffer)
-;;     (select-window new-win)))
-
-(defun gnufind-edit--done-setting ()
+(defun gnufind-edit--done-window ()
   (let* ((buffer gnufind-edit--compile-buffer)
          (win (and buffer (get-buffer-window buffer))))
     (when win
       (delete-window win))
     (set-window-buffer (selected-window) buffer)))
 
-(defun gnufind-edit--try-setting ()
+(defun gnufind-edit--try-window ()
   (let* ((ewin (selected-window))
          (buffer gnufind-edit--compile-buffer)
-         (rwin (and buffer (get-buffer-window buffer)))
-         (new-height 5))                ;TODO magic
-    (when (> (window-height ewin) new-height)
-      (set-window-text-height (selected-window) new-height))))
+         (rwin (and buffer (get-buffer-window buffer))))
+    (unless rwin
+      (setq rwin (split-window))
+      (set-window-buffer rwin buffer)
+      (set-window-text-height ewin window-min-height))))
 
 ;;TODO rename
 (defun gnufind-select-new-buffer ()
@@ -477,74 +480,48 @@
 ;;              args))))))
 ;;     len))
 
-(defvar gnufind-editing-buffer nil)
-(make-variable-buffer-local 'gnufind-editing-buffer)
-
 (defun gnufind-edit--show-command (&rest dummy)
   (condition-case nil
-      (let ((buf (get-buffer-create gnufind-edit-sub-buffer-name))
-            (dir (abbreviate-file-name default-directory))
-            (edit-buffer (current-buffer))
+      (let ((dir (abbreviate-file-name default-directory))
 	    (rwin (get-buffer-window gnufind-edit--compile-buffer))
             (ewin (selected-window))
-            subwin args parse-error)
+            args parse-error)
 	(condition-case err
 	    (setq args (gnufind-edit--args-string))
 	  (error (setq parse-error err)))
-        (with-current-buffer buf
-          (setq gnufind-editing-buffer edit-buffer)
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (cond
-             (args
-              (insert (propertize (concat find-program " " dir " ")
-                                  'face font-lock-constant-face))
-              (insert (propertize args 'face font-lock-variable-name-face) "\n"))
-             (t
-              (insert (propertize (format "%s" parse-error)
-                                  'face font-lock-warning-face)))))
-          (setq buffer-read-only t)
-          (set-buffer-modified-p nil)
-          (add-hook 'window-configuration-change-hook
-                    'gnufind-edit--cleanup-subwindow-maybe))
-        (setq subwin (get-buffer-window buf))
         (cond
-         ((zerop (length (buffer-string)))
-          (when subwin
-            (delete-window subwin)))
-         (subwin)
-         ((>= (window-height ewin) (* window-min-height 2))
-          ;; splittable window
-          (setq subwin (split-window-vertically))
-          (set-window-buffer subwin buf)
-          ;;TODO magic
-          (set-window-text-height subwin 5))
-         ((and rwin)
-          (let ((win (split-window rwin)))
-            (setq subwin rwin)
-            (setq rwin win)
-            (set-window-buffer subwin buf)
-            (set-window-text-height subwin 5)))))
+         ((plusp (length args))
+          (message "%s %s %s"
+                   (propertize find-program 'face font-lock-function-name-face)
+                   (propertize dir 'face font-lock-constant-face)
+                   (propertize args 'face font-lock-variable-name-face)))
+         (parse-error
+          (message "%s"
+                   (propertize (format "%s" parse-error)
+                               'face font-lock-warning-face)))))
     ;; ignore all
     (error nil)))
 
 (defun gnufind-edit--args-string (&optional inhibit-partial)
   (let ((args (gnufind-edit--args inhibit-partial)))
-    (mapconcat 'identity args " ")))
+    (gnufind--join args)))
 
 (defun gnufind-edit--args (&optional inhibit-partial)
-  (let* ((subfinds (gnufind-edit--read-expressions inhibit-partial))
-         (args (mapcar 'find-to-string subfinds)))
-    (apply 
-     'append
-     (mapcar
-      (lambda (item)
-        ;; item is a string (ex: "-type f" "-name \\*\\ \\*.el")
-        (let ((arg (split-string item " " t)))
-          (list
-           (car arg)
-           (mapconcat 'identity (cdr arg) " "))))
-      args))))
+  (let* ((subfinds (gnufind-edit--read-expressions inhibit-partial)))
+    (gnufind-edit--compile-args subfinds)))
+
+(defun gnufind-edit--compile-args (args)
+  (apply 
+   'append
+   (mapcar
+    (lambda (arg)
+      ;; item is a string (ex: "-type f" "-name \\*\\ \\*.el")
+      (let* ((item (find-to-string arg))
+             (sarg (split-string item " " t)))
+        (list
+         (car sarg)
+         (gnufind--join (cdr sarg)))))
+    args)))
 
 (defun gnufind-edit--read-expressions (&optional inhibit-partial)
   (let (exp subfinds)
@@ -558,15 +535,18 @@
             (unless (listp exp)
               (signal 'invalid-read-syntax
                       (list (format "Non list `%s' is not allowed" exp))))
-            (let ((stringfied (gnufind-stringify exp)))
-              (setq subfinds (cons stringfied subfinds))))
+            (let ((stringified (gnufind--stringify exp)))
+              (setq subfinds (cons stringified subfinds))))
 	(end-of-file
          (when inhibit-partial
            (signal (car err) (cdr err))))))
     (nreverse subfinds)))
 
+(defun gnufind--join (args)
+  (mapconcat 'identity args " "))
+
 ;; stringify argument
-(defun gnufind-stringify (sexp)
+(defun gnufind--stringify (sexp)
   (cond
    ((and (listp sexp)
          (listp (cdr sexp)))
@@ -581,7 +561,7 @@
          ((symbolp s)
           (symbol-name s))
          ((listp s)
-          (gnufind-stringify s))
+          (gnufind--stringify s))
          (t s)))
       (cdr sexp))))
    (t sexp)))
@@ -631,53 +611,6 @@
            `(,major-mode))
       (auto-complete-mode 1))))
 
-(defun gnufind-edit--delete-subwindow ()
-  (let ((sub (get-buffer gnufind-edit-sub-buffer-name))
-        win)
-    (when (and sub (setq win (get-buffer-window sub)))
-      (delete-window win))))
-
-(defun gnufind-edit--cleanup-subwindow-maybe ()
-  (let ((sub (get-buffer gnufind-edit-sub-buffer-name)))
-    (when sub
-      (let ((main (buffer-local-value 'gnufind-editing-buffer sub)))
-        (when (and main
-                   (buffer-live-p main))
-          (let ((win (get-buffer-window main)))
-            (unless (and win (window-live-p win))
-              (gnufind-edit--delete-subwindow)))))))
-  (remove-hook 'window-configuration-change-hook 'gnufind-edit--cleanup-subwindow-maybe))
-
-;; ;; TODO interface
-;; (defun gnufind-select-narrow ()
-;;   (interactive)
-;;   (let ((buffer (get-buffer-create gnufind-edit-buffer-name))
-;; 	(dir default-directory))
-;;     (with-current-buffer buffer
-;;       (setq default-directory dir)
-;;       (gnufind-edit-mode))
-;;     ;;TODO set window settings
-;;     ;; remove empty line?
-;;     ;; remove invalid line?
-;;     (select-window (display-buffer buffer))
-;;     (message (substitute-command-keys 
-;;               (concat "Type \\[gnufind-edit-try] to execute find, "
-;;                       ;;TODO
-;;                       "\\[gnufind-edit-quit] to quit edit.")))))
-
-;; ;;TODO rename
-;; (defun gnufind-select-next (&optional start end)
-;;   (interactive (if (region-active-p)
-;;                    (list (region-beginning) (region-end))
-;;                  (list (point-min) (point-max))))
-;;   (let ((buf (gnufind-select-new-buffer)))
-;;     (append-to-buffer buf start end)
-;;     (switch-to-buffer buf)
-;;     (gnufind-mode)
-;;     ;;TODO message
-;;     ))
-
-
 (defun gnufind ()
   ;; execute find and display command-line to buffer.
   ;; -> electric mode?
@@ -696,7 +629,7 @@
         (setq gnufind-edit--previous-buffer prev)
         (gnufind-edit--push-window-setting setting))
       (delete-other-windows)
-      (let ((new-win (split-window-vertically)))
+      (let ((new-win (split-window)))
         (set-window-buffer new-win buffer)
         (select-window new-win))
       (message (substitute-command-keys 
