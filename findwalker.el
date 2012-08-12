@@ -1,4 +1,4 @@
-;;; gnufind.el --- find file utilities
+;;; findwalk.el --- find file utilities
 
 ;; Author: Masahiro Hayashi <mhayashi1120@gmail.com>
 ;; Keywords: find command result xargs
@@ -32,7 +32,7 @@
 ;; Put this file into load-path'ed directory, and byte compile it if
 ;; desired. And put the following expression into your ~/.emacs.
 ;;
-;;     (require 'gnufind)
+;;     (require 'findwalk)
 
 ;; ** In Emacs 22 or earlier **
 ;; Not tested. But to install find-cmd.el from following url may work.
@@ -42,7 +42,7 @@
 
 ;; * Following command open editable buffer.
 ;;
-;;    M-x gnufind
+;;    M-x findwalk
 ;;
 ;; * You can edit `find' command-line option by s-expression like following.
 ;;
@@ -87,35 +87,35 @@
 ;;; Listing find
 ;;;
 
-(defvar gnufind-mode-map nil)
+(defvar findwalk-mode-map nil)
 
-(unless gnufind-mode-map
+(unless findwalk-mode-map
   (let ((map (make-sparse-keymap)))
 
-    (define-key map "\C-c\C-f" 'gnufind-list-limit-by-find)
-    (define-key map "\C-c\C-l" 'gnufind-list-limit-by-grep)
-    (define-key map "\C-c!" 'gnufind-list-with-xargs)
-    (define-key map "\C-c\e|" 'gnufind-list-shell-command)
-    (define-key map "\C-c\eg" 'gnufind-list-invoke-grep)
-    (define-key map "\C-c\el" 'gnufind-list-limit-by-ungrep)
+    (define-key map "\C-c\C-f" 'findwalk-list-limit-by-find)
+    (define-key map "\C-c\C-l" 'findwalk-list-limit-by-grep)
+    (define-key map "\C-c!" 'findwalk-list-with-xargs)
+    (define-key map "\C-c\e|" 'findwalk-list-shell-command)
+    (define-key map "\C-c\eg" 'findwalk-list-invoke-grep)
+    (define-key map "\C-c\el" 'findwalk-list-limit-by-ungrep)
 
-    (setq gnufind-mode-map map)))
+    (setq findwalk-mode-map map)))
 
 ;;TODO
-(defun gnufind-list-shell-command ()
+(defun findwalk-list-shell-command ()
   (interactive)
   (error "Not implement yet"))
 
 ;;TODO
-(defun gnufind-list-call-function ()
+(defun findwalk-list-call-function ()
   (interactive "aFunction: ")
   (error "Not implement yet"))
 
-(defun gnufind-list-invoke-grep ()
+(defun findwalk-list-invoke-grep ()
   "Execute `grep' on listed files."
   (interactive)
-  (let* ((infile (gnufind-select-create-temp))
-         (grep (gnufind-select-read-grep-command "Run grep on files: "))
+  (let* ((infile (findwalk-select-create-temp))
+         (grep (findwalk-select-read-grep-command "Run grep on files: "))
          (command (format "%s -e %s < %s" xargs-program grep infile))
          (buffer 
           (save-window-excursion
@@ -124,53 +124,53 @@
     (set-window-buffer (selected-window) buffer)))
 
 ;;TODO
-(defun gnufind-list-limit-by-grep (regexp)
+(defun findwalk-list-limit-by-grep (regexp)
   "Limit the listed files match to REGEXP."
   (interactive "sGrep regexp: ")
-  (gnufind-list-with-xargs 
+  (findwalk-list-with-xargs 
    (format "%s -l -e %s" grep-program regexp)))
 
 ;;TODO
-(defun gnufind-list-limit-by-ungrep (regexp)
+(defun findwalk-list-limit-by-ungrep (regexp)
   "Limit the listed files unmatch to REGEXP."
   (interactive "sGrep regexp: ")
-  (gnufind-list-with-xargs 
+  (findwalk-list-with-xargs 
    (format "%s -L -e %s" grep-program regexp)))
 
 ;; TODO limit the result
-(defun gnufind-list-limit-by-find ()
+(defun findwalk-list-limit-by-find ()
   (interactive)
   ;;todo open new edit buffer?
-  (gnufind-list-with-xargs 
+  (findwalk-list-with-xargs 
    (format "%s " find-program regexp)))
 
-(defun gnufind-list-with-xargs (command &optional xargs-replace)
+(defun findwalk-list-with-xargs (command &optional xargs-replace)
   (interactive (let ((command 
 		      (read-shell-command "Shell command: ")))
 		 (list command)))
-  (let* ((infile (gnufind-select-create-temp))
+  (let* ((infile (findwalk-select-create-temp))
          (command (if xargs-replace
                       (format "%s --replace=%s -e %s < %s" 
                               xargs-program xargs-replace command infile)
                     (format "%s -e %s < %s" xargs-program command infile)))
-         (buffer (compilation-start command 'gnufind-mode)))
+         (buffer (compilation-start command 'findwalk-mode)))
     ;;TODO
     (process-put proc 'delete-file infile)
     (set-window-buffer (selected-window) buffer)))
 
-(defun gnufind-list--create-local-file ()
+(defun findwalk-list--create-local-file ()
   (let ((tmp (make-temp-file "emacs-find-"))
         (coding-system-for-write file-name-coding-system))
     (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
-        (when (get-text-property (point) 'gnufind-filename)
+        (when (get-text-property (point) 'findwalk-filename)
           (write-region (line-beginning-position) (line-beginning-position 2) tmp t 'no-msg))
         (forward-line 1)))
     tmp))
 
 ;;TODO make obsolete
-(defun gnufind-select-create-temp ()
+(defun findwalk-select-create-temp ()
   (let ((temp (make-temp-file "EmacsFind"))
 	(coding-system-for-write file-name-coding-system))
     (write-region (point-min) (point-max) temp)
@@ -180,99 +180,99 @@
 ;;; Editing find args
 ;;;
 
-(defun gnufind-edit--all-methods ()
+(defun findwalk-edit--all-methods ()
   (mapcar 
    (lambda (x) (symbol-name (car x)))
    find-constituents))
 
-(defvar gnufind-edit-mode-map nil)
+(defvar findwalk-edit-mode-map nil)
 
-(let ((map (or gnufind-edit-mode-map (make-sparse-keymap))))
+(let ((map (or findwalk-edit-mode-map (make-sparse-keymap))))
 
-  (define-key map "\C-c\C-k" 'gnufind-edit-quit)
-  (define-key map "\C-c\C-q" 'gnufind-edit-quit)
-  (define-key map "\C-c\C-c" 'gnufind-edit-done)
+  (define-key map "\C-c\C-k" 'findwalk-edit-quit)
+  (define-key map "\C-c\C-q" 'findwalk-edit-quit)
+  (define-key map "\C-c\C-c" 'findwalk-edit-done)
   ;;TODO change keybind
-  (define-key map "\C-c\ed" 'gnufind-edit-find-dired)
-  (define-key map "\C-j" 'gnufind-edit-try)
-  (define-key map "\C-c\C-e" 'gnufind-edit-try-last-sexp)
-  (define-key map "\M-p" 'gnufind-edit-previous-history)
-  (define-key map "\M-n" 'gnufind-edit-next-history)
+  (define-key map "\C-c\ed" 'findwalk-edit-find-dired)
+  (define-key map "\C-j" 'findwalk-edit-try)
+  (define-key map "\C-c\C-e" 'findwalk-edit-try-last-sexp)
+  (define-key map "\M-p" 'findwalk-edit-previous-history)
+  (define-key map "\M-n" 'findwalk-edit-next-history)
 
-  (setq gnufind-edit-mode-map map))
+  (setq findwalk-edit-mode-map map))
 
-(defvar gnufind-edit-font-lock-keywords
+(defvar findwalk-edit-font-lock-keywords
   `(
-    (,(concat "(" (regexp-opt (gnufind-edit--all-methods) t) "\\b") 
+    (,(concat "(" (regexp-opt (findwalk-edit--all-methods) t) "\\b") 
      (1 font-lock-function-name-face))
     ))
 
-(defvar gnufind-edit-font-lock-defaults
+(defvar findwalk-edit-font-lock-defaults
   '(
-    (gnufind-edit-font-lock-keywords)
+    (findwalk-edit-font-lock-keywords)
     nil nil (("+-*/.<>=!?$%_&~^:@" . "w")) nil
     (font-lock-mark-block-function . mark-defun)
     (font-lock-syntactic-face-function . lisp-font-lock-syntactic-face-function)
     ))
 
-(defvar gnufind-edit-buffer-name "*GNU Find Edit*")
+(defvar findwalk-edit-buffer-name "*Findwalk Edit*")
 
-(defvar gnufind-edit--configuration-stack nil)
-(defvar gnufind-edit--history nil)
-(defvar gnufind-edit--history-position nil)
-(defvar gnufind-edit--tried nil)
-(defvar gnufind-edit--compile-buffer nil)
-(defvar gnufind-edit--previous-buffer nil)
+(defvar findwalk-edit--configuration-stack nil)
+(defvar findwalk-edit--history nil)
+(defvar findwalk-edit--history-position nil)
+(defvar findwalk-edit--tried nil)
+(defvar findwalk-edit--compile-buffer nil)
+(defvar findwalk-edit--previous-buffer nil)
 
-(define-derived-mode gnufind-edit-mode lisp-mode "Find Edit"
+(define-derived-mode findwalk-edit-mode lisp-mode "Find Edit"
   "Major mode to build `find' command args by using `fsvn-cmd'"
   (set (make-local-variable 'after-change-functions) nil)
   (set (make-local-variable 'kill-buffer-hook) nil)
   (set (make-local-variable 'window-configuration-change-hook) nil)
   (set (make-local-variable 'completion-at-point-functions) 
-       (list 'gnufind-edit-completion-at-point))
+       (list 'findwalk-edit-completion-at-point))
   (set (make-local-variable 'font-lock-defaults)
-       gnufind-edit-font-lock-defaults)
+       findwalk-edit-font-lock-defaults)
   (set (make-local-variable 'compilation-buffer-name-function)
-       'gnufind-mode-buffer-name)
-  (set (make-local-variable 'gnufind-edit--history-position) nil)
-  (set (make-local-variable 'gnufind-edit--tried) nil)
-  (set (make-local-variable 'gnufind-edit--compile-buffer) nil)
-  (set (make-local-variable 'gnufind-edit--previous-buffer) nil)
+       'findwalk-mode-buffer-name)
+  (set (make-local-variable 'findwalk-edit--history-position) nil)
+  (set (make-local-variable 'findwalk-edit--tried) nil)
+  (set (make-local-variable 'findwalk-edit--compile-buffer) nil)
+  (set (make-local-variable 'findwalk-edit--previous-buffer) nil)
   (let ((inhibit-read-only t))
     (erase-buffer))
-  (gnufind-edit--ac-initialize)
-  (add-hook 'after-change-functions 'gnufind-edit--show-command nil t)
-  (add-hook 'kill-buffer-hook 'gnufind-edit--cleanup nil t)
-  (use-local-map gnufind-edit-mode-map)
+  (findwalk-edit--ac-initialize)
+  (add-hook 'after-change-functions 'findwalk-edit--show-command nil t)
+  (add-hook 'kill-buffer-hook 'findwalk-edit--cleanup nil t)
+  (use-local-map findwalk-edit-mode-map)
   (set-buffer-modified-p nil)
   (setq buffer-undo-list nil))
 
-(defun gnufind-edit-previous-history ()
+(defun findwalk-edit-previous-history ()
   (interactive)
-  (gnufind-edit-goto-history t))
+  (findwalk-edit-goto-history t))
 
-(defun gnufind-edit-next-history ()
+(defun findwalk-edit-next-history ()
   (interactive)
-  (gnufind-edit-goto-history nil))
+  (findwalk-edit-goto-history nil))
 
-(defun gnufind-edit-done ()
+(defun findwalk-edit-done ()
   "Execute `find' with editing args."
   (interactive)
-  (let* ((find-args (gnufind-edit--args t)))
+  (let* ((find-args (findwalk-edit--args t)))
     (cond
      ((or (null find-args)
-          (not (equal gnufind-edit--tried find-args)))
-      (gnufind-edit--start
+          (not (equal findwalk-edit--tried find-args)))
+      (findwalk-edit--start
        (format "%s %s" find-program 
-               (gnufind--join find-args)) t)))
-    (gnufind-edit--done-window)
+               (findwalk--join find-args)) t)))
+    (findwalk-edit--done-window)
     (let ((contents
            (buffer-substring-no-properties
             (point-min) (point-max))))
-      (add-to-history 'gnufind-edit--history contents))))
+      (add-to-history 'findwalk-edit--history contents))))
 
-(defun gnufind-edit-quit ()
+(defun findwalk-edit-quit ()
   "Quit editing."
   (interactive)
   (mapc
@@ -281,80 +281,80 @@
        (kill-buffer buffer)))
    (list (current-buffer)
          ;;TODO no need to kill?
-         gnufind-edit--compile-buffer))
-  (gnufind-edit--restore-window))
+         findwalk-edit--compile-buffer))
+  (findwalk-edit--restore-window))
 
-(defun gnufind-edit-try ()
+(defun findwalk-edit-try ()
   "Execute `find' with editing args."
   (interactive)
   (let* ((edit-buffer (current-buffer))
-         (find-args (gnufind-edit--args t)))
-    (gnufind-edit--start
+         (find-args (findwalk-edit--args t)))
+    (findwalk-edit--start
      (format "%s %s" find-program 
-             (gnufind--join find-args)) t)
-    (setq gnufind-edit--tried find-args)
-    (gnufind-edit--try-window)))
+             (findwalk--join find-args)) t)
+    (setq findwalk-edit--tried find-args)
+    (findwalk-edit--try-window)))
 
-(defun gnufind-edit-try-last-sexp ()
+(defun findwalk-edit-try-last-sexp ()
   "Try last sexp before point."
   (interactive)
   (let ((sexp (preceding-sexp)))
     (unless (and sexp (listp sexp))
       (error "Invalid sexp `%s'" sexp))
-    (let* ((stringified (gnufind--stringify sexp))
-           (find-args (gnufind-edit--compile-args (list stringified))))
-      (gnufind-edit--start
+    (let* ((stringified (findwalk--stringify sexp))
+           (find-args (findwalk-edit--compile-args (list stringified))))
+      (findwalk-edit--start
        (format "%s %s" find-program
-               (gnufind--join find-args)) t)
-      (gnufind-edit--try-window))))
+               (findwalk--join find-args)) t)
+      (findwalk-edit--try-window))))
 
-(defun gnufind-edit-find-dired ()
+(defun findwalk-edit-find-dired ()
   "Execute `find-dired' ."
   (interactive)
   ;;TODO when error?
   (let ((edit-buffer (current-buffer))
-	(find-args (gnufind-edit--args-string t)))
+	(find-args (findwalk-edit--args-string t)))
     (find-dired default-directory find-args)
     (let ((win (get-buffer-window edit-buffer)))
       (when win
         (delete-window win)))))
 
-(defun gnufind-edit--start (command &optional force-kill)
+(defun findwalk-edit--start (command &optional force-kill)
   (when force-kill
-    (let* ((buffer gnufind-edit--compile-buffer)
+    (let* ((buffer findwalk-edit--compile-buffer)
            (proc (and buffer (get-buffer-process buffer))))
       (when proc
         (kill-process proc)
         (delete-process proc))))
   (save-window-excursion
-    (let* ((buf (compilation-start command 'gnufind-mode)))
-      (setq gnufind-edit--compile-buffer buf)
+    (let* ((buf (compilation-start command 'findwalk-mode)))
+      (setq findwalk-edit--compile-buffer buf)
       buf)))
 
-(defun gnufind-edit--clear-window-settings ()
-  (setq gnufind-edit--configuration-stack nil))
+(defun findwalk-edit--clear-window-settings ()
+  (setq findwalk-edit--configuration-stack nil))
 
-(defun gnufind-edit--pop-window-setting ()
-  (let ((top (car gnufind-edit--configuration-stack)))
+(defun findwalk-edit--pop-window-setting ()
+  (let ((top (car findwalk-edit--configuration-stack)))
     (when top
-      (setq gnufind-edit--configuration-stack
-            (cdr gnufind-edit--configuration-stack))
+      (setq findwalk-edit--configuration-stack
+            (cdr findwalk-edit--configuration-stack))
       top)))
 
-(defun gnufind-edit--push-window-setting (setting)
-  (setq gnufind-edit--configuration-stack
-        (cons setting gnufind-edit--configuration-stack)))
+(defun findwalk-edit--push-window-setting (setting)
+  (setq findwalk-edit--configuration-stack
+        (cons setting findwalk-edit--configuration-stack)))
 
-(defun gnufind-edit--done-window ()
-  (let* ((buffer gnufind-edit--compile-buffer)
+(defun findwalk-edit--done-window ()
+  (let* ((buffer findwalk-edit--compile-buffer)
          (win (and buffer (get-buffer-window buffer))))
     (when win
       (delete-window win))
     (set-window-buffer (selected-window) buffer)))
 
-(defun gnufind-edit--try-window ()
+(defun findwalk-edit--try-window ()
   (let* ((ewin (selected-window))
-         (buffer gnufind-edit--compile-buffer)
+         (buffer findwalk-edit--compile-buffer)
          (rwin (and buffer (get-buffer-window buffer))))
     (unless rwin
       (setq rwin (split-window))
@@ -362,42 +362,42 @@
       (set-window-text-height ewin window-min-height))))
 
 ;;TODO rename
-(defun gnufind-select-new-buffer ()
+(defun findwalk-select-new-buffer ()
   (let* ((ids (sort
                (delq nil
                      (mapcar
                       (lambda (x) 
                         (let ((name (buffer-name x)))
-                          ;;TODO gnufind-select-result-buffer-regexp is obsoleted
-                          (and (string-match gnufind-select-result-buffer-regexp name)
+                          ;;TODO findwalk-select-result-buffer-regexp is obsoleted
+                          (and (string-match findwalk-select-result-buffer-regexp name)
                                (string-to-number (match-string 1 name)))))
                       (buffer-list)))
                '<))
          (next
           (if ids (1+ (apply 'max ids)) 1)))
-    (get-buffer-create (format gnufind-select-result-buffer-format next))))
+    (get-buffer-create (format findwalk-select-result-buffer-format next))))
 
 ;;TODO how to handle undo tree
-(defun gnufind-edit-goto-history (previous)
-  (let ((n (funcall (if previous '1+ '1-) (or gnufind-edit--history-position -1))))
+(defun findwalk-edit-goto-history (previous)
+  (let ((n (funcall (if previous '1+ '1-) (or findwalk-edit--history-position -1))))
     (cond
-     ((or (null gnufind-edit--history)
+     ((or (null findwalk-edit--history)
 	  (< n 0))
       (message "No more history"))
-     ((> n (1- (length gnufind-edit--history)))
+     ((> n (1- (length findwalk-edit--history)))
       (message "No more history"))
      (t
       (erase-buffer)
-      (insert (nth n gnufind-edit--history))
-      (setq gnufind-edit--history-position n)))))
+      (insert (nth n findwalk-edit--history))
+      (setq findwalk-edit--history-position n)))))
 
 
 
-(defun gnufind-edit--cleanup ()
-  (gnufind-edit--restore-window))
+(defun findwalk-edit--cleanup ()
+  (findwalk-edit--restore-window))
 
-(defun gnufind-edit--restore-window ()
-  (let ((setting (gnufind-edit--pop-window-setting)))
+(defun findwalk-edit--restore-window ()
+  (let ((setting (findwalk-edit--pop-window-setting)))
     (when (window-configuration-p setting)
       (set-window-configuration setting))))
 
@@ -410,9 +410,9 @@
 ;; ex:
 ;; dpkg -L some-package
 
-;; (defvar gnufind-select-grep-history nil)
+;; (defvar findwalk-select-grep-history nil)
 
-;; (defun gnufind-select-read-grep-command (prompt)
+;; (defun findwalk-select-read-grep-command (prompt)
 ;;   (let ((merged
 ;;          (append
 ;;           (mapcar 
@@ -421,13 +421,13 @@
 ;;                   (match-string 0 x)))
 ;;            grep-find-history)
 ;;           grep-history
-;;           gnufind-select-grep-history)))
-;;     (setq gnufind-select-grep-history merged)
+;;           findwalk-select-grep-history)))
+;;     (setq findwalk-select-grep-history merged)
 ;;   (read-from-minibuffer prompt
-;;                         (car gnufind-select-grep-history) nil nil 
-;;                         '(gnufind-select-grep-history . 1))))
+;;                         (car findwalk-select-grep-history) nil nil 
+;;                         '(findwalk-select-grep-history . 1))))
 
-;; (defun gnufind-select-functions (arg-length)
+;; (defun findwalk-select-functions (arg-length)
 ;;   (let (res)
 ;;     (mapatoms
 ;;      (lambda (x)
@@ -449,12 +449,12 @@
 ;;      obarray)
 ;;     res))
 
-;; (defun gnufind-select-read-function ()
+;; (defun findwalk-select-read-function ()
 ;;   (let (collection tmp)
 ;;     (mapatoms
 ;;      (lambda (s)
 ;;        (when (fboundp s)
-;;          (when (= (gnufind-select-function-min-arg s) 1)
+;;          (when (= (findwalk-select-function-min-arg s) 1)
 ;;            (setq collection (cons s collection)))))
 ;;      obarray)
 ;;     (setq tmp (completing-read "Function (one arg): " collection nil t nil nil))
@@ -462,7 +462,7 @@
 ;; 	(intern tmp)
 ;;       'identity)))
 
-;; (defun gnufind-select-function-min-arg (symbol)
+;; (defun findwalk-select-function-min-arg (symbol)
 ;;   (let* ((f (symbol-function symbol))
 ;;          (len 0))
 ;;     (cond
@@ -480,14 +480,14 @@
 ;;              args))))))
 ;;     len))
 
-(defun gnufind-edit--show-command (&rest dummy)
+(defun findwalk-edit--show-command (&rest dummy)
   (condition-case nil
       (let ((dir (abbreviate-file-name default-directory))
-	    (rwin (get-buffer-window gnufind-edit--compile-buffer))
+	    (rwin (get-buffer-window findwalk-edit--compile-buffer))
             (ewin (selected-window))
             args parse-error)
 	(condition-case err
-	    (setq args (gnufind-edit--args-string))
+	    (setq args (findwalk-edit--args-string))
 	  (error (setq parse-error err)))
         (cond
          ((plusp (length args))
@@ -502,15 +502,15 @@
     ;; ignore all
     (error nil)))
 
-(defun gnufind-edit--args-string (&optional inhibit-partial)
-  (let ((args (gnufind-edit--args inhibit-partial)))
-    (gnufind--join args)))
+(defun findwalk-edit--args-string (&optional inhibit-partial)
+  (let ((args (findwalk-edit--args inhibit-partial)))
+    (findwalk--join args)))
 
-(defun gnufind-edit--args (&optional inhibit-partial)
-  (let* ((subfinds (gnufind-edit--read-expressions inhibit-partial)))
-    (gnufind-edit--compile-args subfinds)))
+(defun findwalk-edit--args (&optional inhibit-partial)
+  (let* ((subfinds (findwalk-edit--read-expressions inhibit-partial)))
+    (findwalk-edit--compile-args subfinds)))
 
-(defun gnufind-edit--compile-args (args)
+(defun findwalk-edit--compile-args (args)
   (apply 
    'append
    (mapcar
@@ -520,10 +520,10 @@
              (sarg (split-string item " " t)))
         (list
          (car sarg)
-         (gnufind--join (cdr sarg)))))
+         (findwalk--join (cdr sarg)))))
     args)))
 
-(defun gnufind-edit--read-expressions (&optional inhibit-partial)
+(defun findwalk-edit--read-expressions (&optional inhibit-partial)
   (let (exp subfinds)
     (save-excursion
       (goto-char (point-min))
@@ -535,18 +535,18 @@
             (unless (listp exp)
               (signal 'invalid-read-syntax
                       (list (format "Non list `%s' is not allowed" exp))))
-            (let ((stringified (gnufind--stringify exp)))
+            (let ((stringified (findwalk--stringify exp)))
               (setq subfinds (cons stringified subfinds))))
 	(end-of-file
          (when inhibit-partial
            (signal (car err) (cdr err))))))
     (nreverse subfinds)))
 
-(defun gnufind--join (args)
+(defun findwalk--join (args)
   (mapconcat 'identity args " "))
 
 ;; stringify argument
-(defun gnufind--stringify (sexp)
+(defun findwalk--stringify (sexp)
   (cond
    ((and (listp sexp)
          (listp (cdr sexp)))
@@ -561,13 +561,13 @@
          ((symbolp s)
           (symbol-name s))
          ((listp s)
-          (gnufind--stringify s))
+          (findwalk--stringify s))
          (t s)))
       (cdr sexp))))
    (t sexp)))
 
 ;;TODO 
-(defun gnufind-edit--concat-0 ()
+(defun findwalk-edit--concat-0 ()
   (let (list)
     (save-excursion
       (goto-char (point-min))
@@ -581,7 +581,7 @@
     (let ((list (nreverse list)))
       (mapconcat 'identity list "\000"))))
 
-(defun gnufind-edit-completion-at-point ()
+(defun findwalk-edit-completion-at-point ()
   (with-syntax-table lisp-mode-syntax-table
     (let* ((pos (point))
            (beg (condition-case nil
@@ -595,68 +595,68 @@
             (vconcat (mapcar 'car find-constituents))))))
 
 ;;TODO not works?
-(defun gnufind-edit--ac-initialize ()
+(defun findwalk-edit--ac-initialize ()
   (dont-compile
     (when (featurep 'auto-complete)
 
-      (ac-define-source gnufind-constituents
-        '((candidates . gnufind-edit--all-methods)
+      (ac-define-source findwalk-constituents
+        '((candidates . findwalk-edit--all-methods)
           (symbol . "s")
           (prefix . "(\\(?:\\(?:\\sw\\|\\s_\\)*\\)")
           (requires . 1)
           (cache)))
 
-      (setq ac-sources '(ac-source-gnufind-constituents))
+      (setq ac-sources '(ac-source-findwalk-constituents))
       (set (make-local-variable 'ac-modes)
            `(,major-mode))
       (auto-complete-mode 1))))
 
-(defun gnufind ()
+(defun findwalk ()
   ;; execute find and display command-line to buffer.
   ;; -> electric mode?
   ;; execute buffer buffer with call-process-region
   ;;TODO clear stack
   (interactive)
-  (unless (eq major-mode 'gnufind-edit-mode)
-    (let ((buffer (get-buffer-create gnufind-edit-buffer-name))
+  (unless (eq major-mode 'findwalk-edit-mode)
+    (let ((buffer (get-buffer-create findwalk-edit-buffer-name))
           (prev (current-buffer))
           (setting (current-window-configuration))
           (dir default-directory))
-      (gnufind-edit--clear-window-settings)
+      (findwalk-edit--clear-window-settings)
       (with-current-buffer buffer
         (cd dir)
-        (gnufind-edit-mode)
-        (setq gnufind-edit--previous-buffer prev)
-        (gnufind-edit--push-window-setting setting))
+        (findwalk-edit-mode)
+        (setq findwalk-edit--previous-buffer prev)
+        (findwalk-edit--push-window-setting setting))
       (delete-other-windows)
       (let ((new-win (split-window)))
         (set-window-buffer new-win buffer)
         (select-window new-win))
       (message (substitute-command-keys 
-                (concat "Type \\[gnufind-edit-try] to test expression, "
-                        "\\[gnufind-edit-done] to execute find, "
-                        "\\[gnufind-edit-quit] to quit edit."))))))
+                (concat "Type \\[findwalk-edit-try] to test expression, "
+                        "\\[findwalk-edit-done] to execute find, "
+                        "\\[findwalk-edit-quit] to quit edit."))))))
 
 ;; TODO save buffer contents to history
 ;; * some shell command buffer
 ;; **  *shell command* dpkg -L some-package
 ;;    to narrow the find result
 ;;   clear stack
-;; * gnufind-mode buffer
+;; * findwalk-mode buffer
 ;; * output result is nothing message
 
-(defun gnufind-mode-buffer-name (dummy)
+(defun findwalk-mode-buffer-name (dummy)
   ;;TODO
-  (or (and gnufind-edit--compile-buffer
-           (buffer-name gnufind-edit--compile-buffer))
-      "*gnufind*"))
+  (or (and findwalk-edit--compile-buffer
+           (buffer-name findwalk-edit--compile-buffer))
+      "*findwalk*"))
 
 
 ;;;
 ;;; compilation variables (before `define-compilation-mode')
 ;;;
 
-(defvar gnufind-mode-font-lock-keywords
+(defvar findwalk-mode-font-lock-keywords
    '(("^Find started at.*"
       (0 '(face nil compilation-message nil help-echo nil mouse-face nil) t))
      ("^Find finished \\(?:(\\(matches found\\))\\|with \\(no matches found\\)\\).*"
@@ -677,9 +677,9 @@
    "Additional things to highlight in find output.
 This gets tacked on the end of the generated expressions.")
 
-(defun gnufind-process-setup ()
+(defun findwalk-process-setup ()
   "Setup compilation variables and buffer for `find'.
-Set up `compilation-exit-message-function' and run `gnufind-setup-hook'."
+Set up `compilation-exit-message-function' and run `findwalk-setup-hook'."
   ;; `setenv' modifies `process-environment' let-bound in `compilation-start'
   (setenv "LANG" "C")
   (set (make-local-variable 'compilation-exit-message-function)
@@ -695,18 +695,18 @@ Set up `compilation-exit-message-function' and run `gnufind-setup-hook'."
 		   (t
 		    (cons msg code)))
 	   (cons msg code))))
-  (setq gnufind--filterd-point (point))
+  (setq findwalk--filterd-point (point))
   ;;TODO defcustom
-  (run-hooks 'gnufind-setup-hook))
+  (run-hooks 'findwalk-setup-hook))
 
-(defvar gnufind--filterd-point nil
+(defvar findwalk--filterd-point nil
   "TODO `compilation-filter-start' is prepared after version 24.")
 
-(defun gnufind--compilation-filter ()
+(defun findwalk--compilation-filter ()
   (save-excursion
     (forward-line 0)
     (let ((end (point)) beg)
-      (goto-char gnufind--filterd-point)
+      (goto-char findwalk--filterd-point)
       (forward-line 0)
       (setq beg (point))
       ;; Only operate on whole lines so we don't get caught with part of an
@@ -720,12 +720,12 @@ Set up `compilation-exit-message-function' and run `gnufind-setup-hook'."
             (cond
              ;;TODO do check?
              ((file-exists-p line)
-              (put-text-property start fin 'gnufind-filename t))))
+              (put-text-property start fin 'findwalk-filename t))))
           (forward-line 1))
-        (setq gnufind--filterd-point (point))))))
+        (setq findwalk--filterd-point (point))))))
 
 ;;;###autoload
-(define-compilation-mode gnufind-mode "Find"
+(define-compilation-mode findwalk-mode "Find"
   "Sets `grep-last-buffer' and `compilation-window-height'."
   ;; (setq grep-last-buffer (current-buffer))
   ;; compilation-directory-matcher can't be nil, so we set it to a regexp that
@@ -736,13 +736,13 @@ Set up `compilation-exit-message-function' and run `gnufind-setup-hook'."
   (set (make-local-variable 'compilation-error-regexp-alist)
        '(("^\\([.].+\\)" 1)))
   (set (make-local-variable 'compilation-process-setup-function)
-       'gnufind-process-setup)
+       'findwalk-process-setup)
   (set (make-local-variable 'compilation-disable-input) t)
-  (set (make-local-variable 'gnufind--filterd-point) nil)
-  (add-hook 'compilation-filter-hook 'gnufind--compilation-filter nil t))
+  (set (make-local-variable 'findwalk--filterd-point) nil)
+  (add-hook 'compilation-filter-hook 'findwalk--compilation-filter nil t))
 
 
 
-(provide 'gnufind)
+(provide 'findwarl)
 
-;;; gnufind.el ends here
+;;; findwalk.el ends here
