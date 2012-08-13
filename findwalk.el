@@ -2,7 +2,7 @@
 
 ;; Author: Masahiro Hayashi <mhayashi1120@gmail.com>
 ;; Keywords: find command result xargs
-;; URL: TODO http://github.com/mhayashi1120/Emacs-find-select/raw/master/find-select.el
+;; URL: TODO http://github.com/mhayashi1120/Emacs-find-select/raw/master/findwalk.el
 ;; Version: 0.1.1
 
 ;; This program is free software; you can redistribute it and/or
