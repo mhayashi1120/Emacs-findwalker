@@ -1,4 +1,4 @@
-;;; findwalk.el --- find file utilities
+;;; findwalk.el --- find file utilities -*- lexical-binding: t -*-
 
 ;; Author: Masahiro Hayashi <mhayashi1120@gmail.com>
 ;; Keywords: find command result xargs
@@ -22,9 +22,9 @@
 
 ;;; Commentary:
 
-;; You can use `find' command-line option like S Expression.
+;; You can use `find' option like S Expression.
 ;; Provides easy way of editing find complex arguments and to display
-;; full command-line to small buffer.
+;; full command-line to echo area.
 ;;
 
 ;;; Install:
@@ -69,112 +69,225 @@
 ;; * Can complete symbol. auto-complete.el?
 ;; * cleanup buffer.
 ;; * describe how to use. (command sequence)
-;; * kill command line
+;; * findwalk step back
 
 ;;; Code:
 
 (eval-when-compile
   (require 'cl))
 
+(defgroup findwalk nil
+  "Find command line user interface extensions"
+  ;;TODO
+  :group 'applications)
+
 (require 'compile)
 (require 'find-cmd)
 
 (defvar find-program)
-(defvar grep-program)
 (defvar xargs-program)
+
+(defface findwalk-file-face
+  '((t :inherit compilation-info))
+  "Face used to highlight compiler information."
+  :group 'findwalk)
+
+(defcustom findwalk-setup-hook nil
+  "TODO"
+  :group 'findwalk
+  :type 'hook)
+
+(defcustom findwalk-grep-program "grep"
+  ;; Don't use `grep-program' that may indicate sub-species `lgrep' `ack'
+  "TODO grep program path"
+  :group 'findwalk
+  :type 'file)
+
+(defun findwalk-read-grep-command ()
+  (progn
+    (grep-compute-defaults)
+    (let ((default (grep-default-command)))
+      (list (read-shell-command
+             "Run grep to listing files (like this): "
+             (if current-prefix-arg default grep-command)
+             'grep-history
+             (if current-prefix-arg nil default))))))
 
 ;;;
 ;;; Listing find
 ;;;
 
-(defvar findwalk-mode-map nil)
+(defvar findwalk-list-mode-map nil)
 
-(unless findwalk-mode-map
-  (let ((map (make-sparse-keymap)))
+(let ((map (or findwalk-list-mode-map (make-sparse-keymap))))
 
-    (define-key map "\C-c\C-f" 'findwalk-list-limit-by-find)
-    (define-key map "\C-c\C-l" 'findwalk-list-limit-by-grep)
-    (define-key map "\C-c!" 'findwalk-list-with-xargs)
-    (define-key map "\C-c\e|" 'findwalk-list-shell-command)
-    (define-key map "\C-c\eg" 'findwalk-list-invoke-grep)
-    (define-key map "\C-c\el" 'findwalk-list-limit-by-ungrep)
+  (define-key map "\C-c\C-f" 'findwalk-list-find-more)
+  (define-key map "\C-c\el" 'findwalk-list-ungrep-more)
+  (define-key map "\C-c\C-l" 'findwalk-list-grep-more)
+  (define-key map "\C-c\eg" 'findwalk-list-call-grep)
+  
+  ;; (define-key map "\C-c!" 'findwalk-list-invoke-xargs-more)
+  (define-key map "\C-c\e|" 'findwalk-list-shell-command)
+  ;; (define-key map "\C-c\eg" 'findwalk-list-invoke-grep)
 
-    (setq findwalk-mode-map map)))
+  (setq findwalk-list-mode-map map))
 
-;;TODO
-(defun findwalk-list-shell-command ()
+(defun findwalk-list-call-grep (grep-command)
+  (interactive (findwalk-read-grep-command))
+  (findwalk-list-invoke-grep grep-command))
+
+(defun findwalk-list-call-shell ()
   (interactive)
   (error "Not implement yet"))
 
-;;TODO
 (defun findwalk-list-call-function ()
   (interactive "aFunction: ")
   (error "Not implement yet"))
 
-(defun findwalk-list-invoke-grep ()
-  "Execute `grep' on listed files."
-  (interactive)
-  (let* ((infile (findwalk-select-create-temp))
-         (grep (findwalk-select-read-grep-command "Run grep on files: "))
-         (command (format "%s -e %s < %s" xargs-program grep infile))
-         (buffer 
-          (save-window-excursion
-            (grep command))))
-    ;;TODO cleanup infile
-    (set-window-buffer (selected-window) buffer)))
+(defun findwalk-list-grep-more (regexp)
+  (interactive "sGrep regexp: \nP")
+  (findwalk-list-invoke-xargs-more
+   (format "%s -l -e %s" 
+           findwalk-grep-program
+           (shell-quote-argument regexp))))
+
+(defun findwalk-list-ungrep-more (regexp)
+  (interactive "sUngrep regexp: ")
+  (findwalk-list-invoke-xargs-more 
+   (format "%s -L -e %s"
+           findwalk-grep-program
+           (shell-quote-argument regexp))))
 
 ;;TODO
-(defun findwalk-list-limit-by-grep (regexp)
-  "Limit the listed files match to REGEXP."
-  (interactive "sGrep regexp: ")
-  (findwalk-list-with-xargs 
-   (format "%s -l -e %s" grep-program regexp)))
-
-;;TODO
-(defun findwalk-list-limit-by-ungrep (regexp)
-  "Limit the listed files unmatch to REGEXP."
-  (interactive "sGrep regexp: ")
-  (findwalk-list-with-xargs 
-   (format "%s -L -e %s" grep-program regexp)))
-
-;; TODO limit the result
-(defun findwalk-list-limit-by-find ()
+(defun findwalk-list-find-more ()
   (interactive)
-  ;;todo open new edit buffer?
-  (findwalk-list-with-xargs 
+  (error "Not implement yet")
+  (findwalk-list-invoke-xargs-more 
    (format "%s " find-program regexp)))
 
-(defun findwalk-list-with-xargs (command &optional xargs-replace)
-  (interactive (let ((command 
-		      (read-shell-command "Shell command: ")))
-		 (list command)))
-  (let* ((infile (findwalk-select-create-temp))
-         (command (if xargs-replace
-                      (format "%s --replace=%s -e %s < %s" 
-                              xargs-program xargs-replace command infile)
-                    (format "%s -e %s < %s" xargs-program command infile)))
-         (buffer (compilation-start command 'findwalk-mode)))
-    ;;TODO
-    (process-put proc 'delete-file infile)
+;;TODO
+(defun findwalk-list-shell-more ()
+  (interactive)
+  (error "Not implement yet"))
+
+(defun findwalk-list-invoke-grep (grep)
+  "Execute `grep' on listed files."
+  (let* ((file (findwalk-list--create-local-file))
+         (infile (shell-quote-argument file))
+         (command (format "%s -e %s < %s" xargs-program grep infile))
+         (buffer
+          (save-window-excursion
+            (grep command))))
+    (findwalk-list--cleanup-temp-file buffer file)
     (set-window-buffer (selected-window) buffer)))
 
-(defun findwalk-list--create-local-file ()
-  (let ((tmp (make-temp-file "emacs-find-"))
-        (coding-system-for-write file-name-coding-system))
-    (save-excursion
-      (goto-char (point-min))
-      (while (not (eobp))
-        (when (get-text-property (point) 'findwalk-filename)
-          (write-region (line-beginning-position) (line-beginning-position 2) tmp t 'no-msg))
-        (forward-line 1)))
-    tmp))
+(defun findwalk-list-invoke-xargs-more (command &optional xargs-replace)
+  (let ((file (findwalk-list--create-local-file)))
+    (unless file
+      (error "No valid file"))
+    (let* ((infile (shell-quote-argument file))
+           (xcommand (if xargs-replace
+                         (format "%s --replace=%s -e %s < %s" 
+                                 xargs-program xargs-replace command 
+                                 infile)
+                       (format "%s -e %s < %s" xargs-program command infile)))
+           (buffer (compilation-start xcommand 'findwalk-mode))
+           (proc (get-buffer-process buffer)))
+      (findwalk-list--cleanup-temp-file buffer file)
+      (set-window-buffer (selected-window) buffer))))
 
-;;TODO make obsolete
-(defun findwalk-select-create-temp ()
-  (let ((temp (make-temp-file "EmacsFind"))
-	(coding-system-for-write file-name-coding-system))
-    (write-region (point-min) (point-max) temp)
-    temp))
+(defun findwalk-list--cleanup-temp-file (buffer temp-file)
+  (with-current-buffer buffer
+    (add-hook 'compilation-finish-functions
+              (if (< emacs-major-version 24)
+                  (lexical-let ((file temp-file))
+                    (lambda (&rest _ignore)
+                      (delete-file file)))
+                (lambda (&rest _ignore)
+                  (delete-file temp-file))))))
+
+(defun findwalk-list--create-local-file ()
+  (let* ((ovs (findwalk--get-overlays (point-min) (point-max)))
+         (files (mapcar
+                (lambda (ov)
+                  (buffer-substring (overlay-start ov) (overlay-end ov)))
+                ovs)))
+    (when files
+      (with-temp-buffer
+        (dolist (file files)
+          (insert file "\n"))
+        (let ((tmp (make-temp-file "findwalk-"))
+              (coding-system-for-write file-name-coding-system))
+          (write-region (point-min) (point-max) tmp nil 'no-msg)
+          tmp)))))
+
+(defvar findwalk-list-inhibit-preparation nil)
+
+(define-minor-mode findwalk-list-mode
+  "TODO"
+  :init-value nil
+  :lighter " Findwalk File List"
+  :keymap findwalk-list-mode-map
+  (let ((flag (buffer-modified-p))
+        (inhibit-read-only t))
+    (cond
+     (findwalk-list-mode
+      (unless findwalk-list-inhibit-preparation
+        (findwalk-list--prepare-overlays)))
+     (t
+      (findwalk-list--remove-overlays)))
+    (set-buffer-modified-p flag))
+  (add-hook 'after-change-functions 
+            'findwalk-list--after-change nil t))
+
+(defun findwalk-list--after-change (start end _)
+  (save-excursion
+    (goto-char start)
+    (let ((beg (line-beginning-position))
+          (fin (save-excursion
+                 (goto-char end)
+                 (line-end-position))))
+      (save-restriction
+        (narrow-to-region beg fin)
+        (findwalk-list--prepare-overlays)))))
+
+(defun findwalk-list--prepare-overlays ()
+  (save-excursion
+    (goto-char (point-min))
+    (while (not (eobp))
+      (let* ((start (line-beginning-position))
+             (end (line-end-position))
+             (line (buffer-substring start end))
+             ovs)
+        (cond
+         ((file-exists-p line)
+          (findwalk--create-overlay start end line))
+         ((setq ovs (findwalk--get-overlays start end))
+          (dolist (o ovs)
+            (delete-overlay o)))))
+      (forward-line 1))))
+
+(defun findwalk-list--remove-overlays ()
+  (let ((ovs (findwalk--get-overlays
+              (point-min) (point-max))))
+    (dolist (ov ovs)
+      (delete-overlay ov))))
+
+(defun findwalk--get-overlays (start end)
+  (let ((ovs (overlays-in start end))
+        res)
+    (mapc
+     (lambda (ov)
+       (when (overlay-get ov 'findwalk-filename)
+         (setq res (cons ov res))))
+     ovs)
+    (nreverse res)))
+
+(defun findwalk--create-overlay (start end file)
+  (let ((ov (make-overlay start end)))
+    (overlay-put ov 'findwalk-filename file)
+    (overlay-put ov 'face 'findwalk-file-face)
+    ov))
 
 ;;;
 ;;; Editing find args
@@ -189,11 +302,11 @@
 
 (let ((map (or findwalk-edit-mode-map (make-sparse-keymap))))
 
+  (define-key map "\C-c\C-j" 'findwalk-edit-find-dired)
   (define-key map "\C-c\C-k" 'findwalk-edit-quit)
   (define-key map "\C-c\C-q" 'findwalk-edit-quit)
   (define-key map "\C-c\C-c" 'findwalk-edit-done)
-  ;;TODO change keybind
-  (define-key map "\C-c\ed" 'findwalk-edit-find-dired)
+  (define-key map "\C-c\ew" 'findwalk-edit-kill-command)
   (define-key map "\C-j" 'findwalk-edit-try)
   (define-key map "\C-c\C-e" 'findwalk-edit-try-last-sexp)
   (define-key map "\M-p" 'findwalk-edit-previous-history)
@@ -215,8 +328,6 @@
     (font-lock-syntactic-face-function . lisp-font-lock-syntactic-face-function)
     ))
 
-(defvar findwalk-edit-buffer-name "*Findwalk Edit*")
-
 (defvar findwalk-edit--configuration-stack nil)
 (defvar findwalk-edit--history nil)
 (defvar findwalk-edit--history-position nil)
@@ -224,12 +335,12 @@
 (defvar findwalk-edit--compile-buffer nil)
 (defvar findwalk-edit--previous-buffer nil)
 
-(define-derived-mode findwalk-edit-mode lisp-mode "Find Edit"
+(define-derived-mode findwalk-edit-mode lisp-mode "Findwalk Edit"
   "Major mode to build `find' command args by using `fsvn-cmd'"
   (set (make-local-variable 'after-change-functions) nil)
   (set (make-local-variable 'kill-buffer-hook) nil)
   (set (make-local-variable 'window-configuration-change-hook) nil)
-  (set (make-local-variable 'completion-at-point-functions) 
+  (set (make-local-variable 'completion-at-point-functions)
        (list 'findwalk-edit-completion-at-point))
   (set (make-local-variable 'font-lock-defaults)
        findwalk-edit-font-lock-defaults)
@@ -239,6 +350,8 @@
   (set (make-local-variable 'findwalk-edit--tried) nil)
   (set (make-local-variable 'findwalk-edit--compile-buffer) nil)
   (set (make-local-variable 'findwalk-edit--previous-buffer) nil)
+  (set (make-local-variable 'eldoc-documentation-function)
+       'findwalk-edit--print-command)
   (let ((inhibit-read-only t))
     (erase-buffer))
   (findwalk-edit--ac-initialize)
@@ -249,10 +362,12 @@
   (setq buffer-undo-list nil))
 
 (defun findwalk-edit-previous-history ()
+  "Replace current editing contents to previous history."
   (interactive)
   (findwalk-edit-goto-history t))
 
 (defun findwalk-edit-next-history ()
+  "Replace current editing contents to next history."
   (interactive)
   (findwalk-edit-goto-history nil))
 
@@ -309,15 +424,20 @@
       (findwalk-edit--try-window))))
 
 (defun findwalk-edit-find-dired ()
-  "Execute `find-dired' ."
+  "Execute `find-dired'."
   (interactive)
-  ;;TODO when error?
   (let ((edit-buffer (current-buffer))
 	(find-args (findwalk-edit--args-string t)))
-    (find-dired default-directory find-args)
-    (let ((win (get-buffer-window edit-buffer)))
-      (when win
-        (delete-window win)))))
+    (save-window-excursion
+      (find-dired default-directory find-args))
+    (findwalk-edit--done-window t)))
+
+(defun findwalk-edit-kill-command ()
+  "Append current command line to `kill-ring'"
+  (interactive)
+  (let ((command (findwalk-edit--current-command)))
+    (kill-new command)
+    (message "%s" command)))
 
 (defun findwalk-edit--start (command &optional force-kill)
   (when force-kill
@@ -345,12 +465,16 @@
   (setq findwalk-edit--configuration-stack
         (cons setting findwalk-edit--configuration-stack)))
 
-(defun findwalk-edit--done-window ()
+(defun findwalk-edit--done-window (&optional find-dired?)
   (let* ((buffer findwalk-edit--compile-buffer)
          (win (and buffer (get-buffer-window buffer))))
     (when win
       (delete-window win))
-    (set-window-buffer (selected-window) buffer)))
+    (set-window-buffer 
+     (selected-window)
+     (if find-dired?
+         (get-buffer "*Find*")
+       buffer))))
 
 (defun findwalk-edit--try-window ()
   (let* ((ewin (selected-window))
@@ -360,22 +484,6 @@
       (setq rwin (split-window))
       (set-window-buffer rwin buffer)
       (set-window-text-height ewin window-min-height))))
-
-;;TODO rename
-(defun findwalk-select-new-buffer ()
-  (let* ((ids (sort
-               (delq nil
-                     (mapcar
-                      (lambda (x) 
-                        (let ((name (buffer-name x)))
-                          ;;TODO findwalk-select-result-buffer-regexp is obsoleted
-                          (and (string-match findwalk-select-result-buffer-regexp name)
-                               (string-to-number (match-string 1 name)))))
-                      (buffer-list)))
-               '<))
-         (next
-          (if ids (1+ (apply 'max ids)) 1)))
-    (get-buffer-create (format findwalk-select-result-buffer-format next))))
 
 ;;TODO how to handle undo tree
 (defun findwalk-edit-goto-history (previous)
@@ -480,6 +588,12 @@
 ;;              args))))))
 ;;     len))
 
+(defun findwalk-edit--current-command ()
+  (let ((dir (abbreviate-file-name default-directory))
+        (args (findwalk-edit--args-string)))
+    (format "%s %s %s"
+            find-program dir args)))
+
 (defun findwalk-edit--show-command (&rest dummy)
   (condition-case nil
       (let ((dir (abbreviate-file-name default-directory))
@@ -489,18 +603,24 @@
 	(condition-case err
 	    (setq args (findwalk-edit--args-string))
 	  (error (setq parse-error err)))
-        (cond
-         ((plusp (length args))
-          (message "%s %s %s"
-                   (propertize find-program 'face font-lock-function-name-face)
-                   (propertize dir 'face font-lock-constant-face)
-                   (propertize args 'face font-lock-variable-name-face)))
-         (parse-error
-          (message "%s"
-                   (propertize (format "%s" parse-error)
-                               'face font-lock-warning-face)))))
+        (let (message-log-max)
+          (cond
+           ((plusp (length args))
+            (message "%s %s %s"
+                     (propertize find-program 'face font-lock-function-name-face)
+                     (propertize dir 'face font-lock-constant-face)
+                     (propertize args 'face font-lock-variable-name-face)))
+           (parse-error
+            (message "%s"
+                     (propertize (format "%s" parse-error)
+                                 'face font-lock-warning-face))))))
     ;; ignore all
     (error nil)))
+
+(defun findwalk-edit--print-command ()
+  (when (derived-mode-p 'findwalk-edit-mode)
+    (unless (current-message)
+      (findwalk-edit--show-command))))
 
 (defun findwalk-edit--args-string (&optional inhibit-partial)
   (let ((args (findwalk-edit--args inhibit-partial)))
@@ -566,21 +686,6 @@
       (cdr sexp))))
    (t sexp)))
 
-;;TODO 
-(defun findwalk-edit--concat-0 ()
-  (let (list)
-    (save-excursion
-      (goto-char (point-min))
-      (while (not (eobp))
-	(setq list (cons 
-		    (buffer-substring
-                     (line-beginning-position)
-                     (line-end-position))
-		    list))
-	(forward-line 1)))
-    (let ((list (nreverse list)))
-      (mapconcat 'identity list "\000"))))
-
 (defun findwalk-edit-completion-at-point ()
   (with-syntax-table lisp-mode-syntax-table
     (let* ((pos (point))
@@ -590,9 +695,12 @@
                       (skip-syntax-forward "'")
                       (point))
                   (scan-error pos)))
-           (end (point)))
-      (list beg end 
-            (vconcat (mapcar 'car find-constituents))))))
+           (end (point))
+           (col (mapcar 
+                 (lambda (x)
+                   (cons (symbol-name (car x)) (cdr x)))
+                 find-constituents)))
+      `(,beg ,end ,col))))
 
 ;;TODO not works?
 (defun findwalk-edit--ac-initialize ()
@@ -618,7 +726,7 @@
   ;;TODO clear stack
   (interactive)
   (unless (eq major-mode 'findwalk-edit-mode)
-    (let ((buffer (get-buffer-create findwalk-edit-buffer-name))
+    (let ((buffer (get-buffer-create "*Findwalk Edit*"))
           (prev (current-buffer))
           (setting (current-window-configuration))
           (dir default-directory))
@@ -646,11 +754,9 @@
 ;; * output result is nothing message
 
 (defun findwalk-mode-buffer-name (dummy)
-  ;;TODO
   (or (and findwalk-edit--compile-buffer
            (buffer-name findwalk-edit--compile-buffer))
-      "*findwalk*"))
-
+      (generate-new-buffer-name "findwalk")))
 
 ;;;
 ;;; compilation variables (before `define-compilation-mode')
@@ -665,8 +771,8 @@
       (2 compilation-warning-face nil t))
      ("^Find \\(exited abnormally\\|interrupt\\|killed\\|terminated\\)\\(?:.*with code \\([0-9]+\\)\\)?.*"
       (0 '(face nil compilation-message nil help-echo nil mouse-face nil) t)
-      (1 grep-error-face)
-      (2 grep-error-face nil t))
+      (1 compilation-error-face)
+      (2 compilation-error-face nil t))
      ;; buffer header file-local-variable
      ("\\`-\\*- mode:.*"
       (0 '(face nil compilation-message nil help-echo nil mouse-face nil) t))
@@ -696,7 +802,6 @@ Set up `compilation-exit-message-function' and run `findwalk-setup-hook'."
 		    (cons msg code)))
 	   (cons msg code))))
   (setq findwalk--filterd-point (point))
-  ;;TODO defcustom
   (run-hooks 'findwalk-setup-hook))
 
 (defvar findwalk--filterd-point nil
@@ -718,11 +823,18 @@ Set up `compilation-exit-message-function' and run `findwalk-setup-hook'."
                  (fin (line-end-position))
                  (line (buffer-substring start fin)))
             (cond
-             ;;TODO do check?
-             ((file-exists-p line)
-              (put-text-property start fin 'findwalk-filename t))))
+             ((and (file-exists-p line)
+                   (not (findwalk--get-overlays start fin)))
+              (findwalk--create-overlay start fin line))))
           (forward-line 1))
         (setq findwalk--filterd-point (point))))))
+
+(defun findwalk-process-finish (buffer &rest ignore)
+  (kill-local-variable 'findwalk--filterd-point)
+  (let ((findwalk-list-inhibit-preparation t))
+    (findwalk-list-mode 1))
+  (set-buffer-modified-p nil)
+  (setq buffer-read-only nil))
 
 ;;;###autoload
 (define-compilation-mode findwalk-mode "Find"
@@ -731,18 +843,23 @@ Set up `compilation-exit-message-function' and run `findwalk-setup-hook'."
   ;; compilation-directory-matcher can't be nil, so we set it to a regexp that
   ;; can never match.
   (set (make-local-variable 'compilation-error-face)
-       ;;TODO
-       grep-hit-face)
+       'findwalk-file-face)
   (set (make-local-variable 'compilation-error-regexp-alist)
-       '(("^\\([.].+\\)" 1)))
+       '(("^\\([.].+\\)" 1) ("^\\(/.+\\)" 1)))
   (set (make-local-variable 'compilation-process-setup-function)
        'findwalk-process-setup)
+  (if (< emacs-major-version 23)
+      (set (make-local-variable 'compilation-finish-function)
+           'findwalk-process-finish)
+    (set (make-local-variable 'compilation-finish-functions)
+         (list 'findwalk-process-finish)))
+  (set (make-local-variable 'buffer-undo-list) nil)
   (set (make-local-variable 'compilation-disable-input) t)
   (set (make-local-variable 'findwalk--filterd-point) nil)
   (add-hook 'compilation-filter-hook 'findwalk--compilation-filter nil t))
 
 
 
-(provide 'findwarl)
+(provide 'findwalk)
 
 ;;; findwalk.el ends here
