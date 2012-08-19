@@ -202,9 +202,11 @@
               (if (< emacs-major-version 24)
                   (lexical-let ((file temp-file))
                     (lambda (&rest _ignore)
-                      (delete-file file)))
+                      (when (file-exists-p file)
+                        (delete-file file))))
                 (lambda (&rest _ignore)
-                  (delete-file temp-file))))))
+                  (when (file-exists-p temp-file)
+                    (delete-file temp-file)))) nil t)))
 
 (defun findwalk-list--create-local-file ()
   (let* ((ovs (findwalk--get-overlays (point-min) (point-max)))
@@ -502,7 +504,8 @@
 
 
 (defun findwalk-edit--cleanup ()
-  (findwalk-edit--restore-window))
+  (unless (minibufferp)
+    (findwalk-edit--restore-window)))
 
 (defun findwalk-edit--restore-window ()
   (let ((setting (findwalk-edit--pop-window-setting)))
@@ -771,8 +774,8 @@
       (2 compilation-warning-face nil t))
      ("^Find \\(exited abnormally\\|interrupt\\|killed\\|terminated\\)\\(?:.*with code \\([0-9]+\\)\\)?.*"
       (0 '(face nil compilation-message nil help-echo nil mouse-face nil) t)
-      (1 compilation-error-face)
-      (2 compilation-error-face nil t))
+      (1 compilation-warning-face)
+      (2 compilation-warning-face nil t))
      ;; buffer header file-local-variable
      ("\\`-\\*- mode:.*"
       (0 '(face nil compilation-message nil help-echo nil mouse-face nil) t))
@@ -787,7 +790,6 @@ This gets tacked on the end of the generated expressions.")
   "Setup compilation variables and buffer for `find'.
 Set up `compilation-exit-message-function' and run `findwalk-setup-hook'."
   ;; `setenv' modifies `process-environment' let-bound in `compilation-start'
-  (setenv "LANG" "C")
   (set (make-local-variable 'compilation-exit-message-function)
        (lambda (status code msg)
 	 (if (eq status 'exit)
@@ -844,6 +846,7 @@ Set up `compilation-exit-message-function' and run `findwalk-setup-hook'."
   ;; can never match.
   (set (make-local-variable 'compilation-error-face)
        'findwalk-file-face)
+  ;; to point the filename `compile-goto-error'
   (set (make-local-variable 'compilation-error-regexp-alist)
        '(("^\\([.].+\\)" 1) ("^\\(/.+\\)" 1)))
   (set (make-local-variable 'compilation-process-setup-function)
