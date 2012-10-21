@@ -73,10 +73,6 @@
 
 ;;; Code:
 
-;;TODO lexical-binding
-(when (< emacs-major-version 24)
-  (error "This Emacs doesn't support lexical bindings."))
-
 (eval-when-compile
   (require 'cl))
 
