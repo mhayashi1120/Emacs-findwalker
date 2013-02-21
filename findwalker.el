@@ -734,7 +734,7 @@
           (requires . 1)
           (cache)))
 
-      (setq ac-sources '(ac-source-findwalk-constituents))
+      (setq ac-sources '(ac-source-findwalker-constituents))
       (set (make-local-variable 'ac-modes)
            `(,major-mode))
       (auto-complete-mode 1))))
@@ -747,7 +747,7 @@
   ;;TODO clear stack
   (interactive)
   (unless (eq major-mode 'findwalker-edit-mode)
-    (let ((buffer (get-buffer-create "*Findwalk Edit*"))
+    (let ((buffer (get-buffer-create "*Findwalker Edit*"))
           (prev (current-buffer))
           (setting (current-window-configuration))
           (dir default-directory))
@@ -900,7 +900,7 @@ Set up `compilation-exit-message-function' and run `findwalker-setup-hook'."
   (or (and findwalker--man-buffer
            (buffer-live-p findwalker--man-buffer)
            findwalker--man-buffer)
-      (let ((buf (generate-new-buffer " *findwalk Man find* ")))
+      (let ((buf (generate-new-buffer " *findwalker Man find* ")))
         (with-current-buffer buf
           (findwalker--invoke-man))
         (setq findwalker--man-buffer buf))))
