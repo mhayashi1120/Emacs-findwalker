@@ -34,10 +34,6 @@
 ;;
 ;;     (require 'findwalker)
 
-;; ** In Emacs 22 or earlier **
-;; Not tested. But to install find-cmd.el from following url may work.
-;; http://repo.or.cz/w/emacs.git/blob_plain/HEAD:/lisp/find-cmd.el
-
 ;;; Usage:
 
 ;; * Following command open editable buffer.
@@ -66,10 +62,11 @@
 
 ;; * Can call function.
 ;; * Describe how to call command.
-;; * Can complete symbol. auto-complete.el?
 ;; * cleanup buffer.
 ;; * describe how to use. (command sequence)
 ;; * findwalker step back
+;; * can't keep `+' before number.
+;; * show help
 
 ;;; Code:
 
@@ -78,7 +75,7 @@
 
 (defgroup findwalker nil
   "Find command line user interface extensions"
-  ;;TODO
+  :prefix "findwalker-"
   :group 'applications)
 
 (require 'compile)
@@ -99,7 +96,7 @@
 
 (defcustom findwalker-grep-program "grep"
   ;; Don't use `grep-program' that may indicate sub-species `lgrep' `ack'
-  "TODO grep program path"
+  "Path to grep program."
   :group 'findwalker
   :type 'file)
 
@@ -406,13 +403,13 @@
 (defun findwalker-edit-try ()
   "Execute `find' with editing args."
   (interactive)
-  (let* ((edit-buffer (current-buffer))
-         (find-args (findwalker-edit--args t)))
+  (let ((find-args (findwalker-edit--args t)))
     (findwalker-edit--start
      (format "%s %s" find-program 
              (findwalker--join find-args)) t)
     (setq findwalker-edit--tried find-args)
-    (findwalker-edit--try-window)))
+    (findwalker-edit--try-window)
+    (findwalker-edit--add-history)))
 
 (defun findwalker-edit-try-last-sexp ()
   "Try last sexp before point."
@@ -685,25 +682,35 @@
 (defun findwalker--join (args)
   (mapconcat 'identity args " "))
 
+(defvar findwalker-number-plus-notation
+  ;; append `+' if following expression is a number.
+  '(amin atime cmin ctime mmin mtime size))
+
 ;; stringify argument
 (defun findwalker--stringify (sexp)
   (cond
    ((and (listp sexp)
          (listp (cdr sexp)))
-    (cons
-     ;; find arg (ex -type -mindepth)
-     (car sexp)
-     (mapcar
-      (lambda (s)
-        (cond
-         ((numberp s)
-          (number-to-string s))
-         ((symbolp s)
-          (symbol-name s))
-         ((listp s)
-          (findwalker--stringify s))
-         (t s)))
-      (cdr sexp))))
+    (let ((cmd (car sexp)))
+      (cons
+       ;; find arg (ex -type -mindepth)
+       cmd
+       (mapcar
+        (lambda (s)
+          (cond
+           ((numberp s)
+            (cond
+             ((and (plusp s)
+                   (memq cmd findwalker-number-plus-notation))
+              (concat "+" (number-to-string s)))
+             (t
+              (number-to-string s))))
+           ((symbolp s)
+            (symbol-name s))
+           ((listp s)
+            (findwalker--stringify s))
+           (t s)))
+        (cdr sexp)))))
    (t sexp)))
 
 (defun findwalker-edit-completion-at-point ()
@@ -965,6 +972,7 @@ Set up `compilation-exit-message-function' and run `findwalker-setup-hook'."
     (findwalker--parse-man-page)))
 
 (defun findwalker--parse-man-page ()
+  ;;TODO
   )
 
 
