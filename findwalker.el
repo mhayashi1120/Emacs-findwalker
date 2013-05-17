@@ -611,11 +611,9 @@
     (format "%s %s %s"
             find-program dir args)))
 
-(defun findwalker-edit--show-command (&rest dummy)
-  (condition-case nil
+(defun findwalker-edit--show-command (&rest _dummy)
+  (condition-case err
       (let ((dir (abbreviate-file-name default-directory))
-	    (rwin (get-buffer-window findwalker-edit--compile-buffer))
-            (ewin (selected-window))
             args parse-error)
 	(condition-case err
 	    (setq args (findwalker-edit--args-string))
@@ -632,12 +630,11 @@
                      (propertize (format "%s" parse-error)
                                  'face font-lock-warning-face))))))
     ;; ignore all
-    (error nil)))
+    (error (message "%s" err))))
 
 (defun findwalker-edit--print-command ()
   (when (derived-mode-p 'findwalker-edit-mode)
-    (unless (current-message)
-      (findwalker-edit--show-command))))
+    (findwalker-edit--show-command)))
 
 (defun findwalker-edit--args-string (&optional inhibit-partial)
   (let ((args (findwalker-edit--args inhibit-partial)))
@@ -665,53 +662,54 @@
     (save-excursion
       (goto-char (point-min))
       (condition-case err
-	  (while (and (progn 
-                        (skip-chars-forward "[ \t\n]")
-                        (not (eobp)))
-                      (setq exp (read (current-buffer))))
+	  (while (and (not (eobp))
+                      (setq exp (findwalker--read)))
             (unless (listp exp)
               (signal 'invalid-read-syntax
                       (list (format "Non list `%s' is not allowed" exp))))
-            (let ((stringified (findwalker--stringify exp)))
-              (setq subfinds (cons stringified subfinds))))
+            (setq subfinds (cons exp subfinds)))
 	(end-of-file
          (when inhibit-partial
            (signal (car err) (cdr err))))))
     (nreverse subfinds)))
 
+(defun findwalker--skip-ws ()
+  (skip-chars-forward "\s\t\n"))
+
+(defun findwalker--read ()
+  (findwalker--skip-ws)
+  (let ((next (char-after)))
+    (cond
+     ((null next)
+      (signal 'end-of-file nil))
+     ((eq next ?\()
+      (forward-char)
+      (let ((list '()))
+        (catch 'done
+          (while (not (eobp))
+            (when (eq (char-after) ?\))
+              (forward-char)
+              (throw 'done t))
+            (let ((sexp (findwalker--read)))
+              (setq list (cons sexp list)))
+            (findwalker--skip-ws)))
+        (nreverse list)))
+     ((eq next ?\")
+      ;; normal string
+      (read (current-buffer)))
+     ((looking-at "[^\s\t\n()]+")
+      (goto-char (match-end 0))
+      (let* ((text (match-string-no-properties 0))
+             (sym (intern text)))
+        (if (assq sym find-constituents)
+            sym
+          text)))
+     (t
+      (signal 'invalid-read-syntax
+              (list (format "Not a valid syntax %c" next)))))))
+
 (defun findwalker--join (args)
   (mapconcat 'identity args " "))
-
-(defvar findwalker-number-plus-notation
-  ;; append `+' if following expression is a number.
-  '(amin atime cmin ctime mmin mtime size))
-
-;; stringify argument
-(defun findwalker--stringify (sexp)
-  (cond
-   ((and (listp sexp)
-         (listp (cdr sexp)))
-    (let ((cmd (car sexp)))
-      (cons
-       ;; find arg (ex -type -mindepth)
-       cmd
-       (mapcar
-        (lambda (s)
-          (cond
-           ((numberp s)
-            (cond
-             ((and (plusp s)
-                   (memq cmd findwalker-number-plus-notation))
-              (concat "+" (number-to-string s)))
-             (t
-              (number-to-string s))))
-           ((symbolp s)
-            (symbol-name s))
-           ((listp s)
-            (findwalker--stringify s))
-           (t s)))
-        (cdr sexp)))))
-   (t sexp)))
 
 (defun findwalker-edit-completion-at-point ()
   (with-syntax-table lisp-mode-syntax-table
