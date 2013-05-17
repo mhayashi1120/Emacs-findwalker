@@ -1,9 +1,9 @@
 ;;; findwalker.el --- find file utilities -*- lexical-binding: t -*-
 
 ;; Author: Masahiro Hayashi <mhayashi1120@gmail.com>
-;; Keywords: todo
+;; Keywords: convenience extensions maint processes
 ;; URL: http://github.com/mhayashi1120/Emacs-findwalker/raw/master/findwalker.el
-;; Version: 0.1.2
+;; Version: 0.1.3
 
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
