@@ -676,6 +676,7 @@
 (defun findwalker--skip-ws ()
   (skip-chars-forward "\s\t\n"))
 
+;;TODO escape char
 (defun findwalker--read ()
   (findwalker--skip-ws)
   (let ((next (char-after)))
@@ -684,16 +685,15 @@
       (signal 'end-of-file nil))
      ((eq next ?\()
       (forward-char)
-      (let ((list '()))
-        (catch 'done
-          (while (not (eobp))
-            (when (eq (char-after) ?\))
-              (forward-char)
-              (throw 'done t))
-            (let ((sexp (findwalker--read)))
-              (setq list (cons sexp list)))
-            (findwalker--skip-ws)))
-        (nreverse list)))
+      (let ((lis '()))
+        (while (not (eq (char-after) ?\)))
+          (when (eobp)
+            (signal 'invalid-read-syntax (list "Unterminated list")))
+          (let ((sexp (findwalker--read)))
+            (setq lis (cons sexp lis)))
+          (findwalker--skip-ws))
+        (forward-char)
+        (nreverse lis)))
      ((eq next ?\")
       ;; normal string
       (read (current-buffer)))
