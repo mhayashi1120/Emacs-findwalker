@@ -51,7 +51,7 @@
 ;; Type C-j testing execute above command and display command output.
 ;; Type C-c C-c execute command and switch to that buffer.
 ;; Type C-c C-q quit editing.
-;; Type M-n, M-p move history when exists.
+;; Type M-n, M-p move history if there were.
 ;;
 ;; * TODO in result buffer
 
@@ -627,7 +627,9 @@
                      (propertize args 'face font-lock-variable-name-face)))
            (parse-error
             (message "%s"
-                     (propertize (format "%s" parse-error)
+                     (propertize (format "%s: %s"
+                                         (car parse-error)
+                                         (cdr parse-error))
                                  'face font-lock-warning-face))))))
     ;; ignore all
     (error (message "%s" err))))
@@ -677,6 +679,7 @@
   (skip-chars-forward "\s\t\n"))
 
 ;;TODO escape char
+;;TODO consider ?\xffzzz -> '(255 zzz)
 (defun findwalker--read ()
   (findwalker--skip-ws)
   (let ((next (char-after)))
@@ -685,28 +688,39 @@
       (signal 'end-of-file nil))
      ((eq next ?\()
       (forward-char)
-      (let ((lis '()))
+      (let ((lis '())
+            (i 0))
         (while (not (eq (char-after) ?\)))
           (when (eobp)
             (signal 'invalid-read-syntax (list "Unterminated list")))
           (let ((sexp (findwalker--read)))
+            (when (and (= i 0)
+                       (stringp sexp)
+                       (assq (intern-soft sexp) find-constituents))
+              (setq sexp (intern sexp)))
             (setq lis (cons sexp lis)))
+          (setq i (1+ i))
           (findwalker--skip-ws))
         (forward-char)
         (nreverse lis)))
      ((eq next ?\")
       ;; normal string
       (read (current-buffer)))
+     ((looking-at "\\?\\\\o\\([0-7]+\\)")
+      (goto-char (match-end 0))
+      (findwalker--n2s (match-string-no-properties 1) 8))
+     ((looking-at "\\?\\\\x\\([0-9a-fA-F]+\\)")
+      (findwalker--n2s (match-string-no-properties 1) 16))
      ((looking-at "[^\s\t\n()]+")
       (goto-char (match-end 0))
-      (let* ((text (match-string-no-properties 0))
-             (sym (intern text)))
-        (if (assq sym find-constituents)
-            sym
-          text)))
+      (match-string-no-properties 0))
      (t
       (signal 'invalid-read-syntax
-              (list (format "Not a valid syntax %c" next)))))))
+              (list (format "Not a valid syntax `%c' at %d" next (point))))))))
+
+;; number(BASE) to string(decimal)
+(defun findwalker--n2s (text base)
+  (number-to-string (string-to-number text base)))
 
 (defun findwalker--join (args)
   (mapconcat 'identity args " "))
@@ -977,8 +991,10 @@ Set up `compilation-exit-message-function' and run `findwalker-setup-hook'."
 (defun findwalker-help ()
   (interactive)
   ;;TODO
-  (findwalker--popup-man
-   (thing-at-point 'word)))
+  (let ((sym (thing-at-point 'word)))
+    (unless sym
+      (error "No symbol at point"))
+    (findwalker--popup-man sym)))
 
 
 
