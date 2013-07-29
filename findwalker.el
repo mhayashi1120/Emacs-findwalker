@@ -32,7 +32,7 @@
 ;; Put this file into load-path'ed directory, and byte compile it if
 ;; desired. And put the following expression into your ~/.emacs.
 ;;
-;;     (require 'findwalker)
+;;     (autoload 'findwalker "findwalker" "Edit find command with try and error." t)
 
 ;;; Usage:
 
@@ -80,6 +80,7 @@
 
 (require 'compile)
 (require 'find-cmd)
+(require 'eldoc)
 
 (defvar find-program)
 (defvar xargs-program)
@@ -414,6 +415,7 @@
 (defun findwalker-edit-try-last-sexp ()
   "Try last sexp before point."
   (interactive)
+  ;;TODO preceding-sexp reader
   (let ((sexp (preceding-sexp)))
     (unless (and sexp (listp sexp))
       (error "Invalid sexp `%s'" sexp))
@@ -669,7 +671,8 @@
             (unless (listp exp)
               (signal 'invalid-read-syntax
                       (list (format "Non list `%s' is not allowed" exp))))
-            (setq subfinds (cons exp subfinds)))
+            (setq subfinds (cons exp subfinds))
+            (findwalker--skip-ws))
 	(end-of-file
          (when inhibit-partial
            (signal (car err) (cdr err))))))
@@ -679,7 +682,6 @@
   (skip-chars-forward "\s\t\n"))
 
 ;;TODO escape char
-;;TODO consider ?\xffzzz -> '(255 zzz)
 (defun findwalker--read ()
   (findwalker--skip-ws)
   (let ((next (char-after)))
@@ -710,6 +712,7 @@
       (goto-char (match-end 0))
       (findwalker--n2s (match-string-no-properties 1) 8))
      ((looking-at "\\?\\\\x\\([0-9a-fA-F]+\\)")
+      (goto-char (match-end 0))
       (findwalker--n2s (match-string-no-properties 1) 16))
      ((looking-at "[^\s\t\n()]+")
       (goto-char (match-end 0))
@@ -764,6 +767,7 @@
   ;; -> electric mode?
   ;; execute buffer buffer with call-process-region
   ;;TODO clear stack
+  "Edit find command with try and error."
   (interactive)
   (unless (eq major-mode 'findwalker-edit-mode)
     (let ((buffer (get-buffer-create "*Findwalker Edit*"))
