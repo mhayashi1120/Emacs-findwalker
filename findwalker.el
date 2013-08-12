@@ -1,9 +1,9 @@
 ;;; findwalker.el --- find file utilities -*- lexical-binding: t -*-
 
 ;; Author: Masahiro Hayashi <mhayashi1120@gmail.com>
-;; Keywords: todo
-;; URL: http://github.com/mhayashi1120/Emacs-findwalker/raw/master/findwalker.el
-;; Version: 0.1.2
+;; Keywords: convenience extensions maint processes
+;; URL: https://github.com/mhayashi1120/Emacs-findwalker/raw/master/findwalker.el
+;; Version: 0.1.3
 
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -32,7 +32,7 @@
 ;; Put this file into load-path'ed directory, and byte compile it if
 ;; desired. And put the following expression into your ~/.emacs.
 ;;
-;;     (require 'findwalker)
+;;     (autoload 'findwalker "findwalker" "Edit find command with try and error." t)
 
 ;;; Usage:
 
@@ -51,7 +51,7 @@
 ;; Type C-j testing execute above command and display command output.
 ;; Type C-c C-c execute command and switch to that buffer.
 ;; Type C-c C-q quit editing.
-;; Type M-n, M-p move history when exists.
+;; Type M-n, M-p move history if there were.
 ;;
 ;; * TODO in result buffer
 
@@ -65,7 +65,6 @@
 ;; * cleanup buffer.
 ;; * describe how to use. (command sequence)
 ;; * findwalker step back
-;; * can't keep `+' before number.
 ;; * show help
 
 ;;; Code:
@@ -80,6 +79,7 @@
 
 (require 'compile)
 (require 'find-cmd)
+(require 'eldoc)
 
 (defvar find-program)
 (defvar xargs-program)
@@ -90,7 +90,7 @@
   :group 'findwalker)
 
 (defcustom findwalker-setup-hook nil
-  "TODO"
+  "Hooks when invoked after setup `find' command TODO"
   :group 'findwalker
   :type 'hook)
 
@@ -414,6 +414,7 @@
 (defun findwalker-edit-try-last-sexp ()
   "Try last sexp before point."
   (interactive)
+  ;;TODO preceding-sexp reader
   (let ((sexp (preceding-sexp)))
     (unless (and sexp (listp sexp))
       (error "Invalid sexp `%s'" sexp))
@@ -627,7 +628,9 @@
                      (propertize args 'face font-lock-variable-name-face)))
            (parse-error
             (message "%s"
-                     (propertize (format "%s" parse-error)
+                     (propertize (format "%s: %s"
+                                         (car parse-error)
+                                         (cdr parse-error))
                                  'face font-lock-warning-face))))))
     ;; ignore all
     (error (message "%s" err))))
@@ -667,7 +670,8 @@
             (unless (listp exp)
               (signal 'invalid-read-syntax
                       (list (format "Non list `%s' is not allowed" exp))))
-            (setq subfinds (cons exp subfinds)))
+            (setq subfinds (cons exp subfinds))
+            (findwalker--skip-ws))
 	(end-of-file
          (when inhibit-partial
            (signal (car err) (cdr err))))))
@@ -676,6 +680,7 @@
 (defun findwalker--skip-ws ()
   (skip-chars-forward "\s\t\n"))
 
+;;TODO escape char
 (defun findwalker--read ()
   (findwalker--skip-ws)
   (let ((next (char-after)))
@@ -684,29 +689,40 @@
       (signal 'end-of-file nil))
      ((eq next ?\()
       (forward-char)
-      (let ((list '()))
-        (catch 'done
-          (while (not (eobp))
-            (when (eq (char-after) ?\))
-              (forward-char)
-              (throw 'done t))
-            (let ((sexp (findwalker--read)))
-              (setq list (cons sexp list)))
-            (findwalker--skip-ws)))
-        (nreverse list)))
+      (let ((lis '())
+            (i 0))
+        (while (not (eq (char-after) ?\)))
+          (when (eobp)
+            (signal 'invalid-read-syntax (list "Unterminated list")))
+          (let ((sexp (findwalker--read)))
+            (when (and (= i 0)
+                       (stringp sexp)
+                       (assq (intern-soft sexp) find-constituents))
+              (setq sexp (intern sexp)))
+            (setq lis (cons sexp lis)))
+          (setq i (1+ i))
+          (findwalker--skip-ws))
+        (forward-char)
+        (nreverse lis)))
      ((eq next ?\")
       ;; normal string
       (read (current-buffer)))
+     ((looking-at "\\?\\\\o\\([0-7]+\\)")
+      (goto-char (match-end 0))
+      (findwalker--n2s (match-string-no-properties 1) 8))
+     ((looking-at "\\?\\\\x\\([0-9a-fA-F]+\\)")
+      (goto-char (match-end 0))
+      (findwalker--n2s (match-string-no-properties 1) 16))
      ((looking-at "[^\s\t\n()]+")
       (goto-char (match-end 0))
-      (let* ((text (match-string-no-properties 0))
-             (sym (intern text)))
-        (if (assq sym find-constituents)
-            sym
-          text)))
+      (match-string-no-properties 0))
      (t
       (signal 'invalid-read-syntax
-              (list (format "Not a valid syntax %c" next)))))))
+              (list (format "Not a valid syntax `%c' at %d" next (point))))))))
+
+;; number(BASE) to string(decimal)
+(defun findwalker--n2s (text base)
+  (number-to-string (string-to-number text base)))
 
 (defun findwalker--join (args)
   (mapconcat 'identity args " "))
@@ -750,6 +766,7 @@
   ;; -> electric mode?
   ;; execute buffer buffer with call-process-region
   ;;TODO clear stack
+  "Edit find command with try and error."
   (interactive)
   (unless (eq major-mode 'findwalker-edit-mode)
     (let ((buffer (get-buffer-create "*Findwalker Edit*"))
@@ -977,8 +994,10 @@ Set up `compilation-exit-message-function' and run `findwalker-setup-hook'."
 (defun findwalker-help ()
   (interactive)
   ;;TODO
-  (findwalker--popup-man
-   (thing-at-point 'word)))
+  (let ((sym (thing-at-point 'word)))
+    (unless sym
+      (error "No symbol at point"))
+    (findwalker--popup-man sym)))
 
 
 
