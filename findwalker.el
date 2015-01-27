@@ -4,6 +4,7 @@
 ;; Keywords: convenience extensions maint processes
 ;; URL: https://github.com/mhayashi1120/Emacs-findwalker/raw/master/findwalker.el
 ;; Version: 0.1.3
+;; Package-Requires: ((emacs "24"))
 
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -130,6 +131,7 @@
   (setq findwalker-list-mode-map map))
 
 (defun findwalker-list-call-grep (grep-command)
+  "Grep listing files."
   (interactive (findwalker-read-grep-command))
   (findwalker-list-invoke-grep grep-command))
 
@@ -142,6 +144,7 @@
   (error "Not implement yet"))
 
 (defun findwalker-list-grep-more (regexp)
+  "Narrow results with grep mathing to REGEXP."
   (interactive "sGrep regexp: \nP")
   (findwalker-list-invoke-xargs-more
    (format "%s -l -e %s" 
@@ -149,6 +152,7 @@
            (shell-quote-argument regexp))))
 
 (defun findwalker-list-ungrep-more (regexp)
+  "Narrow results with grep NOT mathing to REGEXP."
   (interactive "sUngrep regexp: ")
   (findwalker-list-invoke-xargs-more 
    (format "%s -L -e %s"
@@ -519,7 +523,8 @@
 
 
 (defun findwalker-edit--cleanup ()
-  (unless (minibufferp)
+  (eldoc-message nil)
+  (when (= (minibuffer-depth) 0)
     (findwalker-edit--restore-window)))
 
 (defun findwalker-edit--restore-window ()
@@ -619,19 +624,20 @@
 	(condition-case err
 	    (setq args (findwalker-edit--args-string))
 	  (error (setq parse-error err)))
-        (let (message-log-max)
-          (cond
-           ((plusp (length args))
-            (message "%s %s %s"
-                     (propertize find-program 'face font-lock-function-name-face)
-                     (propertize dir 'face font-lock-constant-face)
-                     (propertize args 'face font-lock-variable-name-face)))
-           (parse-error
-            (message "%s"
-                     (propertize (format "%s: %s"
-                                         (car parse-error)
-                                         (cdr parse-error))
-                                 'face font-lock-warning-face))))))
+        (cond
+         ((plusp (length args))
+          (eldoc-message
+           "%s %s %s"
+           (propertize find-program 'face font-lock-function-name-face)
+           (propertize dir 'face font-lock-constant-face)
+           (propertize args 'face font-lock-variable-name-face)))
+         (parse-error
+          (eldoc-message
+           "%s"
+           (propertize (format "%s: %s"
+                               (car parse-error)
+                               (cdr parse-error))
+                       'face font-lock-warning-face)))))
     ;; ignore all
     (error (message "%s" err))))
 
