@@ -28,14 +28,14 @@
 ;; full command-line to echo area.
 ;;
 
-;;; Install:
+;; ## Install:
 
 ;; Put this file into load-path'ed directory, and byte compile it if
 ;; desired. And put the following expression into your ~/.emacs.
 ;;
 ;;     (autoload 'findwalker "findwalker" "Edit find command with try and error." t)
 
-;;; Usage:
+;; ## Usage:
 
 ;; * Following command open editable buffer.
 ;;
